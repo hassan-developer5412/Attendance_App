@@ -43,6 +43,9 @@ class Teacher {
     required this.id,
     required this.name,
     required this.subject,
+    this.email = '',
+    this.username = '',
+    this.password = '',
     this.classId,
     this.isActive = true,
   });
@@ -50,6 +53,9 @@ class Teacher {
   final int id;
   String name;
   String subject;
+  String email;
+  String username;
+  String password;
   int? classId;
   bool isActive;
 
@@ -61,6 +67,9 @@ class Teacher {
       id: map['id'] as int,
       name: map['name'] as String,
       subject: map['subject'] as String,
+      email: (map['email'] as String?) ?? '',
+      username: (map['username'] as String?) ?? '',
+      password: (map['password'] as String?) ?? '',
       classId: map['class_id'] as int?,
       isActive: (map['is_active'] as int) == 1,
     );
@@ -71,6 +80,9 @@ class Teacher {
     return {
       'name': name,
       'subject': subject,
+      'email': email,
+      'username': username,
+      'password': password,
       'class_id': classId,
       'is_active': isActive ? 1 : 0,
     };

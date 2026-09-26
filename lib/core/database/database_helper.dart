@@ -31,12 +31,28 @@ class DatabaseHelper {
       version: AppConstants.databaseVersion,
       onConfigure: _onConfigure,
       onCreate: _onCreate,
+      onUpgrade: _onUpgrade,
     );
   }
 
   /// Enable foreign key support.
   Future<void> _onConfigure(Database db) async {
     await db.execute('PRAGMA foreign_keys = ON');
+  }
+
+  /// Migrate schema for existing databases.
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    if (oldVersion < 2) {
+      await db.execute(
+        "ALTER TABLE teachers ADD COLUMN email TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE teachers ADD COLUMN username TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE teachers ADD COLUMN password TEXT NOT NULL DEFAULT ''",
+      );
+    }
   }
 
   /// Create all tables and seed the default admin user.
@@ -72,6 +88,9 @@ class DatabaseHelper {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         subject TEXT NOT NULL,
+        email TEXT NOT NULL DEFAULT '',
+        username TEXT NOT NULL DEFAULT '',
+        password TEXT NOT NULL DEFAULT '',
         class_id INTEGER,
         is_active INTEGER NOT NULL DEFAULT 1,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE SET NULL

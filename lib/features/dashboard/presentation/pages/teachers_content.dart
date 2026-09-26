@@ -76,32 +76,63 @@ class _TeachersContentState extends State<TeachersContent> {
   }
 
   Future<void> _showAddDialog(InstituteStore store) async {
-    if (store.classes.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Add a class first, then assign a teacher to it.'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
     final result = await showDialog<AddTeacherResult>(
       context: context,
-      builder: (ctx) => AddTeacherDialog(classes: store.classes),
+      builder: (ctx) => AddTeacherDialog(
+        subjects: store.subjectsSortedByAssignment,
+      ),
     );
 
     if (result == null || !mounted) return;
 
     await store.addTeacher(
       name: result.name,
-      subject: result.subject,
-      classId: result.classId,
+      email: result.email,
+      username: result.username,
+      password: result.password,
+      subjectIds: result.subjectIds,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Teacher added'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Returns the IDs of subjects currently assigned to a given teacher.
+  Set<int> _assignedSubjectIds(InstituteStore store, Teacher teacher) {
+    return store.subjects
+        .where((s) => s.teacherName == teacher.name)
+        .map((s) => s.id)
+        .toSet();
+  }
+
+  Future<void> _showEditDialog(InstituteStore store, Teacher teacher) async {
+    final result = await showDialog<EditTeacherResult>(
+      context: context,
+      builder: (ctx) => EditTeacherDialog(
+        teacher: teacher,
+        subjects: store.subjectsSortedByAssignment,
+        assignedSubjectIds: _assignedSubjectIds(store, teacher),
+      ),
+    );
+
+    if (result == null || !mounted) return;
+
+    await store.updateTeacher(
+      id: teacher.id,
+      name: result.name,
+      email: result.email,
+      username: result.username,
+      password: result.password,
+      subjectIds: result.subjectIds,
+    );
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Teacher updated'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -149,7 +180,9 @@ class _TeachersContentState extends State<TeachersContent> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${teacher.subject} • ${store.classLabel(teacher.classId)}',
+                  teacher.subject.isEmpty
+                      ? 'No subjects assigned'
+                      : teacher.subject,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -163,6 +196,14 @@ class _TeachersContentState extends State<TeachersContent> {
                   ),
                 ),
                 const SizedBox(height: 12),
+                ListTile(
+                  leading: Icon(Icons.edit_outlined, color: colorScheme.primary),
+                  title: const Text('Edit teacher'),
+                  onTap: () {
+                    Navigator.of(ctx).pop();
+                    _showEditDialog(store, teacher);
+                  },
+                ),
                 ListTile(
                   leading: Icon(Icons.delete_outline_rounded, color: colorScheme.error),
                   title: const Text('Delete teacher'),
@@ -311,7 +352,9 @@ class _TeachersContentState extends State<TeachersContent> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          '${teacher.subject} • ${store.classLabel(teacher.classId)}',
+                                          teacher.subject.isEmpty
+                                              ? 'No subjects assigned'
+                                              : teacher.subject,
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                             color: colorScheme.onSurfaceVariant,
@@ -320,6 +363,15 @@ class _TeachersContentState extends State<TeachersContent> {
                                         ),
                                       ],
                                     ),
+                                  ),
+                                  IconButton(
+                                    tooltip: 'Edit teacher',
+                                    icon: Icon(
+                                      Icons.edit_outlined,
+                                      color: colorScheme.primary,
+                                    ),
+                                    onPressed: () =>
+                                        _showEditDialog(store, teacher),
                                   ),
                                   IconButton(
                                     tooltip: 'Delete teacher',

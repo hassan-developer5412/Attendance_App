@@ -15,7 +15,7 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'attendance_app.db';
-  static const int databaseVersion = 1;
+  static const int databaseVersion = 2;
 
   // Default seeded admin credentials (used on first launch only)
   static const String defaultAdminUsername = 'admin';

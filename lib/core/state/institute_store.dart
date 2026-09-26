@@ -106,25 +106,65 @@ class InstituteStore extends ChangeNotifier {
   // Teachers
   // ---------------------------------------------------------------------------
 
+  /// Returns all subjects sorted with unassigned ones first, then by name.
+  List<Subject> get subjectsSortedByAssignment {
+    final sorted = List<Subject>.from(_subjects);
+    sorted.sort((a, b) {
+      final aUnassigned =
+          a.teacherName == 'Unassigned' || a.teacherName.trim().isEmpty;
+      final bUnassigned =
+          b.teacherName == 'Unassigned' || b.teacherName.trim().isEmpty;
+      if (aUnassigned && !bUnassigned) return -1;
+      if (!aUnassigned && bUnassigned) return 1;
+      return a.name.compareTo(b.name);
+    });
+    return sorted;
+  }
+
   Future<void> addTeacher({
     required String name,
-    required String subject,
-    int? classId,
+    required String email,
+    required String username,
+    required String password,
+    required List<int> subjectIds,
   }) async {
     final db = await DatabaseHelper.instance.database;
+
+    // Derive a comma-separated subject label from the selected IDs.
+    final selected =
+        _subjects.where((s) => subjectIds.contains(s.id)).toList();
+    final subjectLabel =
+        selected.isEmpty ? '' : selected.map((s) => '${s.name} (${s.code})').join(', ');
+
     final id = await db.insert('teachers', {
       'name': name.trim(),
-      'subject': subject.trim(),
-      'class_id': classId,
+      'subject': subjectLabel,
+      'email': email.trim(),
+      'username': username.trim(),
+      'password': password.trim(),
       'is_active': 1,
     });
+
+    // Mark selected subjects as assigned to this teacher.
+    for (final subject in selected) {
+      await db.update(
+        'subjects',
+        {'teacher_name': name.trim()},
+        where: 'id = ?',
+        whereArgs: [subject.id],
+      );
+      subject.teacherName = name.trim();
+    }
+
     _teachers.insert(
       0,
       Teacher(
         id: id,
         name: name.trim(),
-        subject: subject.trim(),
-        classId: classId,
+        subject: subjectLabel,
+        email: email.trim(),
+        username: username.trim(),
+        password: password.trim(),
       ),
     );
     notifyListeners();
@@ -132,8 +172,95 @@ class InstituteStore extends ChangeNotifier {
 
   Future<void> deleteTeacher(int id) async {
     final db = await DatabaseHelper.instance.database;
+
+    // Find the teacher so we can unassign their subjects.
+    final teacher = _teachers.where((t) => t.id == id).firstOrNull;
+    if (teacher != null) {
+      await db.update(
+        'subjects',
+        {'teacher_name': 'Unassigned'},
+        where: 'teacher_name = ?',
+        whereArgs: [teacher.name],
+      );
+      for (final subject in _subjects) {
+        if (subject.teacherName == teacher.name) {
+          subject.teacherName = 'Unassigned';
+        }
+      }
+    }
+
     await db.delete('teachers', where: 'id = ?', whereArgs: [id]);
     _teachers.removeWhere((item) => item.id == id);
+    notifyListeners();
+  }
+
+  Future<void> updateTeacher({
+    required int id,
+    required String name,
+    required String email,
+    required String username,
+    required String password,
+    required List<int> subjectIds,
+  }) async {
+    final db = await DatabaseHelper.instance.database;
+
+    // Find the existing teacher to un-assign old subjects.
+    final teacher = _teachers.where((t) => t.id == id).firstOrNull;
+    if (teacher != null) {
+      // Un-assign subjects previously belonging to this teacher.
+      await db.update(
+        'subjects',
+        {'teacher_name': 'Unassigned'},
+        where: 'teacher_name = ?',
+        whereArgs: [teacher.name],
+      );
+      for (final subject in _subjects) {
+        if (subject.teacherName == teacher.name) {
+          subject.teacherName = 'Unassigned';
+        }
+      }
+    }
+
+    // Derive a comma-separated subject label (with codes) from the selected IDs.
+    final selected =
+        _subjects.where((s) => subjectIds.contains(s.id)).toList();
+    final subjectLabel =
+        selected.isEmpty ? '' : selected.map((s) => '${s.name} (${s.code})').join(', ');
+
+    // Update the database row.
+    await db.update(
+      'teachers',
+      {
+        'name': name.trim(),
+        'subject': subjectLabel,
+        'email': email.trim(),
+        'username': username.trim(),
+        'password': password.trim(),
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+
+    // Mark selected subjects as assigned to this teacher.
+    for (final subject in selected) {
+      await db.update(
+        'subjects',
+        {'teacher_name': name.trim()},
+        where: 'id = ?',
+        whereArgs: [subject.id],
+      );
+      subject.teacherName = name.trim();
+    }
+
+    // Update the in-memory teacher object.
+    if (teacher != null) {
+      teacher.name = name.trim();
+      teacher.subject = subjectLabel;
+      teacher.email = email.trim();
+      teacher.username = username.trim();
+      teacher.password = password.trim();
+    }
+
     notifyListeners();
   }
 
