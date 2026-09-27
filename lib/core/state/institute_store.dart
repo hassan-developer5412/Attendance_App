@@ -1,10 +1,28 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 
-import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/repositories/class_repository.dart';
+import 'package:attendance_app/core/repositories/faculty_repository.dart';
+import 'package:attendance_app/core/repositories/student_repository.dart';
+import 'package:attendance_app/core/repositories/subject_repository.dart';
 
-/// Directory of classes, teachers, and students backed by SQLite.
+/// Directory of classes, teachers, and students backed by the SQLite repositories.
 class InstituteStore extends ChangeNotifier {
+  InstituteStore({
+    ClassRepository? classRepository,
+    FacultyRepository? facultyRepository,
+    StudentRepository? studentRepository,
+    SubjectRepository? subjectRepository,
+  })  : _classRepository = classRepository ?? ClassRepository(),
+        _facultyRepository = facultyRepository ?? FacultyRepository(),
+        _studentRepository = studentRepository ?? StudentRepository(),
+        _subjectRepository = subjectRepository ?? SubjectRepository();
+
+  final ClassRepository _classRepository;
+  final FacultyRepository _facultyRepository;
+  final StudentRepository _studentRepository;
+  final SubjectRepository _subjectRepository;
+
   final List<SchoolClass> _classes = [];
   final List<Teacher> _teachers = [];
   final List<Student> _students = [];
@@ -23,27 +41,21 @@ class InstituteStore extends ChangeNotifier {
 
   /// Loads all data from the database. Call once during app startup.
   Future<void> init() async {
-    final db = await DatabaseHelper.instance.database;
-
-    final classRows = await db.query('classes', orderBy: 'id DESC');
     _classes
       ..clear()
-      ..addAll(classRows.map(SchoolClass.fromMap));
+      ..addAll(await _classRepository.getAll());
 
-    final teacherRows = await db.query('teachers', orderBy: 'id DESC');
     _teachers
       ..clear()
-      ..addAll(teacherRows.map(Teacher.fromMap));
+      ..addAll(await _facultyRepository.getAll());
 
-    final studentRows = await db.query('students', orderBy: 'id DESC');
     _students
       ..clear()
-      ..addAll(studentRows.map(Student.fromMap));
+      ..addAll(await _studentRepository.getAll());
 
-    final subjectRows = await db.query('subjects', orderBy: 'id DESC');
     _subjects
       ..clear()
-      ..addAll(subjectRows.map(Subject.fromMap));
+      ..addAll(await _subjectRepository.getAll());
 
     notifyListeners();
   }
@@ -69,28 +81,19 @@ class InstituteStore extends ChangeNotifier {
     required String section,
     required String room,
   }) async {
-    final db = await DatabaseHelper.instance.database;
-    final id = await db.insert('classes', {
-      'name': name.trim(),
-      'section': section.trim(),
-      'room': room.trim(),
-    });
-    _classes.insert(
-      0,
-      SchoolClass(
-        id: id,
-        name: name.trim(),
-        section: section.trim(),
-        room: room.trim(),
-      ),
+    final schoolClass = await _classRepository.insert(
+      name: name,
+      section: section,
+      room: room,
     );
+    _classes.insert(0, schoolClass);
     notifyListeners();
   }
 
   Future<void> deleteClass(int id) async {
-    final db = await DatabaseHelper.instance.database;
-    // Foreign keys handle cascading deletes for students and SET NULL for teachers.
-    await db.delete('classes', where: 'id = ?', whereArgs: [id]);
+    // The repository soft-deletes the class and cascades to its students,
+    // subjects, and teacher assignments.
+    await _classRepository.softDelete(id);
     _classes.removeWhere((item) => item.id == id);
     for (final teacher in _teachers) {
       if (teacher.classId == id) {
@@ -128,68 +131,43 @@ class InstituteStore extends ChangeNotifier {
     required String password,
     required List<int> subjectIds,
   }) async {
-    final db = await DatabaseHelper.instance.database;
-
     // Derive a comma-separated subject label from the selected IDs.
     final selected =
         _subjects.where((s) => subjectIds.contains(s.id)).toList();
     final subjectLabel =
         selected.isEmpty ? '' : selected.map((s) => '${s.name} (${s.code})').join(', ');
 
-    final id = await db.insert('teachers', {
-      'name': name.trim(),
-      'subject': subjectLabel,
-      'email': email.trim(),
-      'username': username.trim(),
-      'password': password.trim(),
-      'is_active': 1,
-    });
+    final teacher = await _facultyRepository.insert(
+      name: name,
+      subject: subjectLabel,
+      email: email,
+      username: username,
+      password: password,
+    );
 
     // Mark selected subjects as assigned to this teacher.
     for (final subject in selected) {
-      await db.update(
-        'subjects',
-        {'teacher_name': name.trim()},
-        where: 'id = ?',
-        whereArgs: [subject.id],
-      );
       subject.teacherName = name.trim();
+      await _subjectRepository.update(subject);
     }
 
-    _teachers.insert(
-      0,
-      Teacher(
-        id: id,
-        name: name.trim(),
-        subject: subjectLabel,
-        email: email.trim(),
-        username: username.trim(),
-        password: password.trim(),
-      ),
-    );
+    _teachers.insert(0, teacher);
     notifyListeners();
   }
 
   Future<void> deleteTeacher(int id) async {
-    final db = await DatabaseHelper.instance.database;
-
     // Find the teacher so we can unassign their subjects.
     final teacher = _teachers.where((t) => t.id == id).firstOrNull;
     if (teacher != null) {
-      await db.update(
-        'subjects',
-        {'teacher_name': 'Unassigned'},
-        where: 'teacher_name = ?',
-        whereArgs: [teacher.name],
-      );
       for (final subject in _subjects) {
         if (subject.teacherName == teacher.name) {
           subject.teacherName = 'Unassigned';
+          await _subjectRepository.update(subject);
         }
       }
     }
 
-    await db.delete('teachers', where: 'id = ?', whereArgs: [id]);
+    await _facultyRepository.softDelete(id);
     _teachers.removeWhere((item) => item.id == id);
     notifyListeners();
   }
@@ -202,21 +180,14 @@ class InstituteStore extends ChangeNotifier {
     required String password,
     required List<int> subjectIds,
   }) async {
-    final db = await DatabaseHelper.instance.database;
-
     // Find the existing teacher to un-assign old subjects.
     final teacher = _teachers.where((t) => t.id == id).firstOrNull;
     if (teacher != null) {
       // Un-assign subjects previously belonging to this teacher.
-      await db.update(
-        'subjects',
-        {'teacher_name': 'Unassigned'},
-        where: 'teacher_name = ?',
-        whereArgs: [teacher.name],
-      );
       for (final subject in _subjects) {
         if (subject.teacherName == teacher.name) {
           subject.teacherName = 'Unassigned';
+          await _subjectRepository.update(subject);
         }
       }
     }
@@ -227,38 +198,20 @@ class InstituteStore extends ChangeNotifier {
     final subjectLabel =
         selected.isEmpty ? '' : selected.map((s) => '${s.name} (${s.code})').join(', ');
 
-    // Update the database row.
-    await db.update(
-      'teachers',
-      {
-        'name': name.trim(),
-        'subject': subjectLabel,
-        'email': email.trim(),
-        'username': username.trim(),
-        'password': password.trim(),
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-
-    // Mark selected subjects as assigned to this teacher.
-    for (final subject in selected) {
-      await db.update(
-        'subjects',
-        {'teacher_name': name.trim()},
-        where: 'id = ?',
-        whereArgs: [subject.id],
-      );
-      subject.teacherName = name.trim();
-    }
-
-    // Update the in-memory teacher object.
+    // Update the database row and the in-memory teacher object.
     if (teacher != null) {
       teacher.name = name.trim();
       teacher.subject = subjectLabel;
       teacher.email = email.trim();
       teacher.username = username.trim();
       teacher.password = password.trim();
+      await _facultyRepository.update(teacher);
+    }
+
+    // Mark selected subjects as assigned to this teacher.
+    for (final subject in selected) {
+      subject.teacherName = name.trim();
+      await _subjectRepository.update(subject);
     }
 
     notifyListeners();
@@ -273,28 +226,17 @@ class InstituteStore extends ChangeNotifier {
     required String rollNumber,
     required int classId,
   }) async {
-    final db = await DatabaseHelper.instance.database;
-    final id = await db.insert('students', {
-      'name': name.trim(),
-      'roll_number': rollNumber.trim(),
-      'class_id': classId,
-      'is_active': 1,
-    });
-    _students.insert(
-      0,
-      Student(
-        id: id,
-        name: name.trim(),
-        rollNumber: rollNumber.trim(),
-        classId: classId,
-      ),
+    final student = await _studentRepository.insert(
+      name: name,
+      rollNumber: rollNumber,
+      classId: classId,
     );
+    _students.insert(0, student);
     notifyListeners();
   }
 
   Future<void> deleteStudent(int id) async {
-    final db = await DatabaseHelper.instance.database;
-    await db.delete('students', where: 'id = ?', whereArgs: [id]);
+    await _studentRepository.softDelete(id);
     _students.removeWhere((item) => item.id == id);
     notifyListeners();
   }
@@ -313,29 +255,18 @@ class InstituteStore extends ChangeNotifier {
     required String teacherName,
     required int classId,
   }) async {
-    final db = await DatabaseHelper.instance.database;
-    final id = await db.insert('subjects', {
-      'name': name.trim(),
-      'code': code.trim(),
-      'teacher_name': teacherName.trim(),
-      'class_id': classId,
-    });
-    _subjects.insert(
-      0,
-      Subject(
-        id: id,
-        name: name.trim(),
-        code: code.trim(),
-        teacherName: teacherName.trim(),
-        classId: classId,
-      ),
+    final subject = await _subjectRepository.insert(
+      name: name,
+      code: code,
+      teacherName: teacherName,
+      classId: classId,
     );
+    _subjects.insert(0, subject);
     notifyListeners();
   }
 
   Future<void> deleteSubject(int id) async {
-    final db = await DatabaseHelper.instance.database;
-    await db.delete('subjects', where: 'id = ?', whereArgs: [id]);
+    await _subjectRepository.softDelete(id);
     _subjects.removeWhere((item) => item.id == id);
     notifyListeners();
   }

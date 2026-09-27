@@ -1,15 +1,19 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 
 import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
-import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/user.dart';
+import 'package:attendance_app/core/repositories/user_repository.dart';
 
-/// Manages user authentication state backed by the SQLite users table.
+/// Manages user authentication state backed by UserRepository.
 class AuthStore extends ChangeNotifier {
+  AuthStore({UserRepository? userRepository})
+      : _userRepository = userRepository ?? UserRepository();
+
+  final UserRepository _userRepository;
   User? _currentUser;
 
   /// The currently logged-in user, or `null` if unauthenticated.
@@ -18,50 +22,28 @@ class AuthStore extends ChangeNotifier {
   /// Whether a user is currently logged in.
   bool get isLoggedIn => _currentUser != null;
 
-  /// Restores the session from [SharedPreferences] if a user was previously
-  /// logged in.
+  /// Restores the session from [SharedPreferences] if a user was previously logged in.
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     final userIdStr = prefs.getString(AppConstants.prefUserId);
-    if (userIdStr == null) return;
+    if (userIdStr == null || userIdStr.isEmpty) return;
 
-    final userId = int.tryParse(userIdStr);
-    if (userId == null) return;
-
-    final db = await DatabaseHelper.instance.database;
-    final rows = await db.query(
-      'users',
-      where: 'id = ?',
-      whereArgs: [userId],
-      limit: 1,
-    );
-
-    if (rows.isNotEmpty) {
-      _currentUser = User.fromMap(rows.first);
+    final user = await _userRepository.getById(userIdStr);
+    if (user != null) {
+      _currentUser = user;
       notifyListeners();
     }
   }
 
   /// Attempts to authenticate with [username] and [password].
-  ///
-  /// Returns the authenticated [User] on success, or `null` on failure.
-  /// Persists the session to [SharedPreferences].
   Future<User?> login(String username, String password) async {
-    final db = await DatabaseHelper.instance.database;
     final hash = sha256.convert(utf8.encode(password)).toString();
+    final user = await _userRepository.authenticate(username, hash);
 
-    final rows = await db.query(
-      'users',
-      where: 'username = ? AND password_hash = ?',
-      whereArgs: [username.trim(), hash],
-      limit: 1,
-    );
+    if (user == null) return null;
 
-    if (rows.isEmpty) return null;
+    _currentUser = user;
 
-    _currentUser = User.fromMap(rows.first);
-
-    // Persist session.
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
       AppConstants.prefUserId,
@@ -85,27 +67,22 @@ class AuthStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Updates the current user's display name and email in the database.
+  /// Updates the current user's display name and email.
   Future<void> updateProfile({
     required String displayName,
     required String email,
   }) async {
     if (_currentUser == null) return;
 
-    final db = await DatabaseHelper.instance.database;
-    await db.update(
-      'users',
-      {'display_name': displayName.trim(), 'email': email.trim()},
-      where: 'id = ?',
-      whereArgs: [_currentUser!.id],
-    );
-
-    _currentUser = User(
+    await _userRepository.updateProfile(
       id: _currentUser!.id,
-      username: _currentUser!.username,
       displayName: displayName.trim(),
       email: email.trim(),
-      role: _currentUser!.role,
+    );
+
+    _currentUser = _currentUser!.copyWith(
+      displayName: displayName.trim(),
+      email: email.trim(),
     );
     notifyListeners();
   }

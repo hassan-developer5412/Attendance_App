@@ -1,14 +1,15 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
-/// A user of the attendance and institute management system.
-class User {
-  User({
+/// Attendance session representing a lecture, lab, or class gathering.
+class AttendanceSession {
+  AttendanceSession({
     String? id,
-    required this.username,
-    required this.displayName,
-    required this.email,
-    required this.role,
+    required this.subjectCode,
+    required this.departmentId,
+    required this.facultyId,
+    required this.sessionDate,
+    this.remarks = '',
     DateTime? createdAt,
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
@@ -18,30 +19,24 @@ class User {
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   final String id;
-  final String username;
-  final String displayName;
-  final String email;
-  final UserRole role;
+  final String subjectCode;
+  final String departmentId;
+  final String facultyId;
+  final String sessionDate; // YYYY-MM-DD
+  final String remarks;
   final DateTime createdAt;
   final DateTime updatedAt;
   final SyncStatus syncStatus;
   final bool isDeleted;
 
-  /// Creates a [User] from a database row map.
-  factory User.fromMap(Map<String, dynamic> map) {
-    // Prefer the canonical UUID; fall back to the legacy integer primary key.
-    final rawUuid = map['uuid']?.toString();
-    final rawId = map['id']?.toString();
-    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty)
-        ? rawUuid
-        : (rawId ?? '');
-
-    return User(
-      id: canonicalId,
-      username: map['username'] as String,
-      displayName: (map['display_name'] as String?) ?? '',
-      email: (map['email'] as String?) ?? '',
-      role: UserRole.fromString(map['role'] as String),
+  factory AttendanceSession.fromMap(Map<String, dynamic> map) {
+    return AttendanceSession(
+      id: map['id'].toString(),
+      subjectCode: (map['subject_code'] as String?) ?? '',
+      departmentId: (map['department_id'] as String?) ?? '',
+      facultyId: (map['faculty_id'] as String?) ?? '',
+      sessionDate: (map['session_date'] as String?) ?? '',
+      remarks: (map['remarks'] as String?) ?? '',
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -53,18 +48,14 @@ class User {
     );
   }
 
-  /// Converts this user to a database row map (excludes password).
-  ///
-  /// `id` is intentionally omitted: on the legacy `users` table it is an
-  /// `INTEGER PRIMARY KEY AUTOINCREMENT`, so the canonical UUID is written to the
-  /// dedicated `uuid` column instead.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': id,
-      'username': username,
-      'display_name': displayName,
-      'email': email,
-      'role': role.value,
+      'id': id,
+      'subject_code': subjectCode,
+      'department_id': departmentId,
+      'faculty_id': facultyId,
+      'session_date': sessionDate,
+      'remarks': remarks,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -72,14 +63,14 @@ class User {
     };
   }
 
-  /// Backend-ready representation for future REST API.
   Map<String, dynamic> toServerJson() {
     return {
       'id': id,
-      'username': username,
-      'display_name': displayName,
-      'email': email,
-      'role': role.value,
+      'subject_code': subjectCode,
+      'department_id': departmentId,
+      'faculty_id': facultyId,
+      'session_date': sessionDate,
+      'remarks': remarks,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -87,23 +78,25 @@ class User {
     };
   }
 
-  User copyWith({
+  AttendanceSession copyWith({
     String? id,
-    String? username,
-    String? displayName,
-    String? email,
-    UserRole? role,
+    String? subjectCode,
+    String? departmentId,
+    String? facultyId,
+    String? sessionDate,
+    String? remarks,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
     bool? isDeleted,
   }) {
-    return User(
+    return AttendanceSession(
       id: id ?? this.id,
-      username: username ?? this.username,
-      displayName: displayName ?? this.displayName,
-      email: email ?? this.email,
-      role: role ?? this.role,
+      subjectCode: subjectCode ?? this.subjectCode,
+      departmentId: departmentId ?? this.departmentId,
+      facultyId: facultyId ?? this.facultyId,
+      sessionDate: sessionDate ?? this.sessionDate,
+      remarks: remarks ?? this.remarks,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,
@@ -111,4 +104,3 @@ class User {
     );
   }
 }
-

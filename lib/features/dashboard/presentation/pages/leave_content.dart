@@ -52,7 +52,7 @@ class _LeaveContentState extends State<LeaveContent> {
   }
 
   Future<void> _updateStatus(LeaveRequest request, LeaveStatus newStatus) async {
-    await context.read<LeaveStore>().updateStatus(request.id!, newStatus);
+    await context.read<LeaveStore>().updateStatus(request.id, newStatus);
   }
 
   @override
