@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
@@ -17,6 +17,22 @@ class FreshDatabaseCreator {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         code TEXT NOT NULL UNIQUE,
+        description TEXT NOT NULL DEFAULT '',
+        is_active INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        sync_status TEXT NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
+    batch.execute('''
+      CREATE TABLE academic_sessions (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        start_date TEXT NOT NULL,
+        end_date TEXT NOT NULL,
+        is_current INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
@@ -47,7 +63,10 @@ class FreshDatabaseCreator {
         name TEXT NOT NULL,
         section TEXT NOT NULL,
         room TEXT NOT NULL,
+        class_name TEXT NOT NULL DEFAULT '',
+        current_year TEXT NOT NULL DEFAULT '',
         department_id TEXT,
+        academic_session_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
@@ -90,7 +109,8 @@ class FreshDatabaseCreator {
         registration_no TEXT,
         father_name TEXT NOT NULL DEFAULT '',
         department_id TEXT,
-        current_semester TEXT NOT NULL DEFAULT '1st',
+        academic_session_id TEXT,
+        current_year TEXT NOT NULL DEFAULT '1st Year',
         status TEXT NOT NULL DEFAULT 'ACTIVE',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -108,6 +128,12 @@ class FreshDatabaseCreator {
         code TEXT NOT NULL,
         teacher_name TEXT NOT NULL,
         class_id INTEGER NOT NULL,
+        department_id TEXT,
+        academic_session_id TEXT,
+        year TEXT NOT NULL DEFAULT '',
+        subject_type TEXT NOT NULL DEFAULT 'THEORY',
+        contact_hours REAL NOT NULL DEFAULT 0,
+        teacher_id INTEGER,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
@@ -123,6 +149,10 @@ class FreshDatabaseCreator {
         department_id TEXT NOT NULL DEFAULT '',
         faculty_id TEXT NOT NULL DEFAULT '',
         session_date TEXT NOT NULL,
+        academic_session_id TEXT NOT NULL DEFAULT '',
+        class_id INTEGER,
+        year TEXT NOT NULL DEFAULT '',
+        subject_id INTEGER,
         remarks TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -146,7 +176,7 @@ class FreshDatabaseCreator {
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
-        UNIQUE (student_id, date)
+        UNIQUE (session_id, student_id)
       )
     ''');
 
@@ -217,5 +247,6 @@ class FreshDatabaseCreator {
     });
 
     await MigrationHelpers.seedDepartments(db);
+    await MigrationHelpers.seedAcademicSessions(db);
   }
 }

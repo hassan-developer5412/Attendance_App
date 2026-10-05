@@ -1,8 +1,16 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
+export 'academic_session.dart';
+export 'department.dart';
 
-/// A class (section) in the school or institute.
+
+/// A class offering at GILT — a class/program (e.g. `CIT`) running for a
+/// specific academic [currentYear] (e.g. `3rd Year`) inside a department and
+/// an academic session.
+///
+/// The display label is generated as `<className>-<currentYear>`, e.g.
+/// `CIT-3rd Year`. This is **not** a semester.
 class SchoolClass {
   SchoolClass({
     required this.id,
@@ -11,11 +19,16 @@ class SchoolClass {
     required this.section,
     required this.room,
     this.departmentId,
+    this.academicSessionId,
+    String? className,
+    String? currentYear,
     DateTime? createdAt,
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
   })  : uuid = uuid ?? UuidUtils.deterministic('classes', id),
+        className = className ?? name,
+        currentYear = currentYear ?? '',
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
@@ -25,14 +38,31 @@ class SchoolClass {
   String section;
   String room;
   String? departmentId;
+  String? academicSessionId;
+
+  /// Class/program code, e.g. `CIT`, `LT`, `FW`.
+  String className;
+
+  /// The current academic year of this class, e.g. `3rd Year`.
+  String currentYear;
+
   final DateTime createdAt;
   final DateTime updatedAt;
   final SyncStatus syncStatus;
   final bool isDeleted;
 
+  /// Human-readable class label: `<className>-<currentYear>`.
+  ///
+  /// Legacy records that have not yet been assigned a year fall back to the
+  /// historic `name — section` format so existing data keeps rendering.
   String get displayName {
-    if (section.trim().isEmpty) return name;
-    return '$name — $section';
+    final cls = className.trim();
+    final year = currentYear.trim();
+    if (cls.isNotEmpty && year.isNotEmpty) return '$cls-$year';
+    final base = name.trim().isNotEmpty ? name.trim() : cls;
+    if (base.isEmpty) return 'Unnamed class';
+    if (section.trim().isEmpty) return base;
+    return '$base — ${section.trim()}';
   }
 
   /// Creates a [SchoolClass] from a database row map.
@@ -46,6 +76,9 @@ class SchoolClass {
       section: (map['section'] as String?) ?? '',
       room: (map['room'] as String?) ?? '',
       departmentId: map['department_id']?.toString(),
+      academicSessionId: map['academic_session_id']?.toString(),
+      className: map['class_name']?.toString(),
+      currentYear: map['current_year']?.toString(),
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -64,7 +97,10 @@ class SchoolClass {
       'name': name,
       'section': section,
       'room': room,
+      'class_name': className,
+      'current_year': currentYear,
       'department_id': departmentId,
+      'academic_session_id': academicSessionId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -79,7 +115,11 @@ class SchoolClass {
       'name': name,
       'section': section,
       'room': room,
+      'class_name': className,
+      'current_year': currentYear,
+      'display_name': displayName,
       'department_id': departmentId,
+      'academic_session_id': academicSessionId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -94,6 +134,9 @@ class SchoolClass {
     String? section,
     String? room,
     String? departmentId,
+    String? academicSessionId,
+    String? className,
+    String? currentYear,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
@@ -106,6 +149,9 @@ class SchoolClass {
       section: section ?? this.section,
       room: room ?? this.room,
       departmentId: departmentId ?? this.departmentId,
+      academicSessionId: academicSessionId ?? this.academicSessionId,
+      className: className ?? this.className,
+      currentYear: currentYear ?? this.currentYear,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,
@@ -283,13 +329,15 @@ class Student {
     this.registrationNo,
     this.fatherName = '',
     this.departmentId,
-    this.currentSemester = '1st',
+    this.academicSessionId,
+    String? currentYear,
     this.status = 'ACTIVE',
     DateTime? createdAt,
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
   })  : uuid = uuid ?? UuidUtils.deterministic('students', id),
+        currentYear = currentYear ?? AcademicYears.defaultValue,
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
@@ -304,7 +352,10 @@ class Student {
   String? registrationNo;
   String fatherName;
   String? departmentId;
-  String currentSemester;
+  String? academicSessionId;
+
+  /// The student's current academic year, e.g. `3rd Year` (never a semester).
+  String currentYear;
   String status;
 
   final DateTime createdAt;
@@ -333,7 +384,8 @@ class Student {
       registrationNo: (map['registration_no'] as String?),
       fatherName: (map['father_name'] as String?) ?? '',
       departmentId: map['department_id']?.toString(),
-      currentSemester: (map['current_semester'] as String?) ?? '1st',
+      academicSessionId: map['academic_session_id']?.toString(),
+      currentYear: AcademicYears.normalise(map['current_year'] as String?),
       status: (map['status'] as String?) ?? 'ACTIVE',
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
@@ -359,7 +411,8 @@ class Student {
       'registration_no': registrationNo ?? 'REG-$rollNumber',
       'father_name': fatherName,
       'department_id': departmentId,
-      'current_semester': currentSemester,
+      'academic_session_id': academicSessionId,
+      'current_year': currentYear,
       'status': status,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -377,7 +430,8 @@ class Student {
       'full_name': name,
       'father_name': fatherName,
       'department_id': departmentId,
-      'current_semester': currentSemester,
+      'academic_session_id': academicSessionId,
+      'current_year': currentYear,
       'status': status,
       'class_id': UuidUtils.deterministic('classes', classId),
       'is_active': isActive,
@@ -398,7 +452,8 @@ class Student {
     String? registrationNo,
     String? fatherName,
     String? departmentId,
-    String currentSemester = '1st',
+    String? academicSessionId,
+    String? currentYear,
     String? status,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -415,7 +470,8 @@ class Student {
       registrationNo: registrationNo ?? this.registrationNo,
       fatherName: fatherName ?? this.fatherName,
       departmentId: departmentId ?? this.departmentId,
-      currentSemester: currentSemester,
+      academicSessionId: academicSessionId ?? this.academicSessionId,
+      currentYear: currentYear ?? this.currentYear,
       status: status ?? this.status,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
@@ -425,7 +481,7 @@ class Student {
   }
 }
 
-/// A subject taught in a class.
+/// A subject taught in a class for a specific academic year.
 class Subject {
   Subject({
     required this.id,
@@ -434,6 +490,12 @@ class Subject {
     required this.code,
     required this.teacherName,
     required this.classId,
+    this.departmentId,
+    this.academicSessionId,
+    this.year = '',
+    this.subjectType = SubjectType.theory,
+    this.contactHours = 0,
+    this.teacherId,
     DateTime? createdAt,
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
@@ -448,6 +510,23 @@ class Subject {
   String code;
   String teacherName;
   int classId;
+  String? departmentId;
+  String? academicSessionId;
+
+  /// Academic year this subject belongs to, e.g. `3rd Year` (never a semester).
+  String year;
+
+  /// Theory / practical classification.
+  SubjectType subjectType;
+
+  /// Contact hours per week where applicable.
+  double contactHours;
+
+  double get contactHoursPerWeek => contactHours;
+
+  /// Integer id of the teacher assigned to this subject (nullable).
+  int? teacherId;
+
   final DateTime createdAt;
   final DateTime updatedAt;
   final SyncStatus syncStatus;
@@ -469,6 +548,16 @@ class Subject {
       code: (map['code'] as String?) ?? '',
       teacherName: (map['teacher_name'] as String?) ?? '',
       classId: classIdInt,
+      departmentId: map['department_id']?.toString(),
+      academicSessionId: map['academic_session_id']?.toString(),
+      year: (map['year'] as String?) ?? '',
+      subjectType: SubjectType.fromString(map['subject_type'] as String?),
+      contactHours: (map['contact_hours'] as num?)?.toDouble() ?? 0,
+      teacherId: map['teacher_id'] is int
+          ? map['teacher_id'] as int
+          : (map['teacher_id'] != null
+              ? int.tryParse(map['teacher_id'].toString())
+              : null),
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -488,6 +577,12 @@ class Subject {
       'code': code,
       'teacher_name': teacherName,
       'class_id': classId,
+      'department_id': departmentId,
+      'academic_session_id': academicSessionId,
+      'year': year,
+      'subject_type': subjectType.code,
+      'contact_hours': contactHours,
+      'teacher_id': teacherId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -503,6 +598,12 @@ class Subject {
       'code': code,
       'teacher_name': teacherName,
       'class_id': UuidUtils.deterministic('classes', classId),
+      'department_id': departmentId,
+      'academic_session_id': academicSessionId,
+      'year': year,
+      'subject_type': subjectType.code,
+      'contact_hours': contactHours,
+      'teacher_id': teacherId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -517,6 +618,12 @@ class Subject {
     String? code,
     String? teacherName,
     int? classId,
+    String? departmentId,
+    String? academicSessionId,
+    String? year,
+    SubjectType? subjectType,
+    double? contactHours,
+    int? teacherId,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
@@ -529,6 +636,12 @@ class Subject {
       code: code ?? this.code,
       teacherName: teacherName ?? this.teacherName,
       classId: classId ?? this.classId,
+      departmentId: departmentId ?? this.departmentId,
+      academicSessionId: academicSessionId ?? this.academicSessionId,
+      year: year ?? this.year,
+      subjectType: subjectType ?? this.subjectType,
+      contactHours: contactHours ?? this.contactHours,
+      teacherId: teacherId ?? this.teacherId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,

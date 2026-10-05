@@ -85,7 +85,10 @@ class _ClassesContentState extends State<ClassesContent> {
   Future<void> _showAddDialog(InstituteStore store) async {
     final result = await showDialog<AddClassResult>(
       context: context,
-      builder: (ctx) => const AddClassDialog(),
+      builder: (ctx) => AddClassDialog(
+        departments: store.activeDepartments,
+        sessions: store.academicSessions,
+      ),
     );
 
     if (result == null || !mounted) return;
@@ -94,11 +97,15 @@ class _ClassesContentState extends State<ClassesContent> {
       name: result.name,
       section: result.section,
       room: result.room,
+      departmentId: result.departmentId,
+      academicSessionId: result.academicSessionId,
+      className: result.className,
+      currentYear: result.currentYear,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Class added'),
+      SnackBar(
+        content: Text('${result.name} added'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -177,9 +184,12 @@ class _ClassesContentState extends State<ClassesContent> {
                         final studentCount = store.students
                             .where((s) => s.classId == item.id)
                             .length;
-                        final teacherCount = store.teachers
-                            .where((t) => t.classId == item.id)
-                            .length;
+                        final subjectCount = store.subjectsForClass(item.id).length;
+                        final dept = store.departmentById(item.departmentId);
+                        final session = store.academicSessionById(item.academicSessionId);
+                        final deptText = dept != null ? dept.code : '';
+                        final sessionText = session != null ? session.name : '';
+
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
                           child: ListTile(
@@ -199,12 +209,54 @@ class _ClassesContentState extends State<ClassesContent> {
                                 color: colorScheme.onPrimaryContainer,
                               ),
                             ),
-                            title: Text(
-                              item.displayName,
-                              style: const TextStyle(fontWeight: FontWeight.w600),
+                            title: Row(
+                              children: [
+                                Text(
+                                  item.displayName,
+                                  style: const TextStyle(fontWeight: FontWeight.w600),
+                                ),
+                                if (deptText.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.secondaryContainer,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      deptText,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold,
+                                        color: colorScheme.onSecondaryContainer,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                                if (sessionText.isNotEmpty) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.surfaceContainerHighest,
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      sessionText,
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ],
                             ),
-                            subtitle: Text(
-                              '${item.room} • $teacherCount teachers • $studentCount students',
+                            subtitle: Padding(
+                              padding: const EdgeInsets.only(top: 4),
+                              child: Text(
+                                '${item.room} • Section: ${item.section.isNotEmpty ? item.section : "Main"} • $subjectCount subjects • $studentCount students',
+                              ),
                             ),
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,

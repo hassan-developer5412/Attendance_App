@@ -1,3 +1,4 @@
+// ignore_for_file: avoid_print
 import 'package:sqflite_common_ffi_web/setup.dart';
 
 Future<void> main() async {

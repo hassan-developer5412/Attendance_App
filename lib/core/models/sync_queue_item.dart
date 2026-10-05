@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 /// Represents an operation type on an entity in the offline sync queue.

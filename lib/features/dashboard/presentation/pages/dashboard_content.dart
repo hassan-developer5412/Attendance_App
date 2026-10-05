@@ -8,7 +8,7 @@ import 'package:attendance_app/core/models/attendance_record.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 
-/// Dashboard overview page driven entirely by real database data.
+/// Dashboard overview page driven entirely by real database data and academic hierarchy stats.
 class DashboardContent extends StatefulWidget {
   const DashboardContent({super.key});
 
@@ -19,6 +19,7 @@ class DashboardContent extends StatefulWidget {
 class _DashboardContentState extends State<DashboardContent> {
   // Async computed dashboard data.
   int _lateCount = 0;
+  Map<String, dynamic> _todayOverview = {};
   List<Map<String, int>> _weeklyStats = [];
   Map<AttendanceStatus, int> _distribution = {};
   List<AttendanceRecord> _recentActivity = [];
@@ -33,6 +34,7 @@ class _DashboardContentState extends State<DashboardContent> {
   Future<void> _loadDashboardData() async {
     final store = context.read<AttendanceStore>();
     final late = await store.todayLateCount();
+    final overview = await store.todayOverview();
     final weekly = await store.weeklyStats();
     final dist = await store.monthlyDistribution();
     final recent = await store.recentActivity();
@@ -40,6 +42,7 @@ class _DashboardContentState extends State<DashboardContent> {
     if (!mounted) return;
     setState(() {
       _lateCount = late;
+      _todayOverview = overview;
       _weeklyStats = weekly;
       _distribution = dist;
       _recentActivity = recent;
@@ -52,10 +55,15 @@ class _DashboardContentState extends State<DashboardContent> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final store = context.watch<InstituteStore>();
+    final currentSession = store.currentAcademicSession;
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
     }
+
+    final todayTotal = (_todayOverview['total'] as int?) ?? 0;
+    final todayPresent = (_todayOverview['present'] as int?) ?? 0;
+    final todayRate = (_todayOverview['rate'] as num?)?.toDouble() ?? 0.0;
 
     return SafeArea(
       child: RefreshIndicator(
@@ -66,23 +74,104 @@ class _DashboardContentState extends State<DashboardContent> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Today's summary
-              Text(
-                'Today\'s Overview',
-                style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.bold,
+              // Academic Session & Institute Header
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colorScheme.primaryContainer,
+                      colorScheme.surfaceContainerHighest,
+                    ],
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  ),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: colorScheme.outlineVariant),
+                ),
+                child: Row(
+                  children: [
+                    CircleAvatar(
+                      radius: 24,
+                      backgroundColor: colorScheme.primary,
+                      child: const Icon(
+                        Icons.account_balance_rounded,
+                        color: Colors.white,
+                        size: 24,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Govt. Institute of Leather Technology (GILT)',
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: colorScheme.onPrimaryContainer,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Row(
+                            children: [
+                              Icon(
+                                Icons.calendar_today_rounded,
+                                size: 14,
+                                color: colorScheme.primary,
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                currentSession != null
+                                    ? 'Academic Session: ${currentSession.name} (Active)'
+                                    : 'Academic Session: 2024-2027',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: colorScheme.primary,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 4),
-              Text(
-                DateFormat('EEEE, d MMMM yyyy').format(DateTime.now()),
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 18),
 
-              // Stat Cards
+              // Today's summary label
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Live Overview',
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        DateFormat('EEEE, d MMMM yyyy').format(DateTime.now()),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    onPressed: _loadDashboardData,
+                    icon: const Icon(Icons.refresh_rounded),
+                    tooltip: 'Refresh data',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+
+              // Comprehensive Stat Cards Grid
               Wrap(
                 spacing: 12,
                 runSpacing: 12,
@@ -96,23 +185,49 @@ class _DashboardContentState extends State<DashboardContent> {
                   ),
                   _buildStatCard(
                     icon: Icons.school_rounded,
-                    label: 'Total Teachers',
+                    label: 'Faculty Members',
                     value: '${store.teacherCount}',
                     color: Colors.teal,
                     theme: theme,
                   ),
                   _buildStatCard(
+                    icon: Icons.apartment_rounded,
+                    label: 'Active Departments',
+                    value: '${store.activeDepartmentCount}',
+                    color: Colors.indigo,
+                    theme: theme,
+                  ),
+                  _buildStatCard(
                     icon: Icons.class_rounded,
-                    label: 'Total Classes',
+                    label: 'Registered Classes',
                     value: '${store.classCount}',
                     color: Colors.deepPurple,
+                    theme: theme,
+                  ),
+                  _buildStatCard(
+                    icon: Icons.menu_book_rounded,
+                    label: 'Total Subjects',
+                    value: '${store.subjectCount}',
+                    color: Colors.brown,
+                    theme: theme,
+                  ),
+                  _buildStatCard(
+                    icon: Icons.check_circle_outline_rounded,
+                    label: 'Today\'s Attendance',
+                    value: todayTotal > 0
+                        ? '${todayRate.toStringAsFixed(1)}%'
+                        : '0%',
+                    subtitle: todayTotal > 0
+                        ? '$todayPresent of $todayTotal marked'
+                        : 'No records today',
+                    color: todayRate >= 75 ? Colors.green : Colors.orange,
                     theme: theme,
                   ),
                   _buildStatCard(
                     icon: Icons.schedule_rounded,
                     label: 'Late Today',
                     value: '$_lateCount',
-                    color: Colors.orange,
+                    color: Colors.amber.shade800,
                     theme: theme,
                   ),
                 ],
@@ -161,31 +276,50 @@ class _DashboardContentState extends State<DashboardContent> {
     required IconData icon,
     required String label,
     required String value,
+    String? subtitle,
     required Color color,
     required ThemeData theme,
   }) {
     return SizedBox(
-      width: 170,
+      width: 165,
       child: Card(
+        elevation: 0,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        ),
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(14),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Icon(icon, color: color, size: 28),
+              Icon(icon, color: color, size: 26),
               const SizedBox(height: 8),
               Text(
                 value,
                 style: theme.textTheme.headlineMedium?.copyWith(
                   fontWeight: FontWeight.bold,
+                  fontSize: 22,
                 ),
               ),
               Text(
                 label,
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
+              if (subtitle != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  subtitle,
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -224,20 +358,34 @@ class _DashboardContentState extends State<DashboardContent> {
             return BarChartGroupData(
               x: i,
               barRods: [
-                BarChartRodData(toY: present, color: Colors.green, width: 14, borderRadius: BorderRadius.circular(4)),
-                BarChartRodData(toY: absent, color: Colors.red.shade300, width: 14, borderRadius: BorderRadius.circular(4)),
+                BarChartRodData(
+                  toY: present,
+                  color: Colors.green,
+                  width: 14,
+                  borderRadius: BorderRadius.circular(4),
+                ),
+                BarChartRodData(
+                  toY: absent,
+                  color: Colors.red.shade300,
+                  width: 14,
+                  borderRadius: BorderRadius.circular(4),
+                ),
               ],
             );
           }),
           titlesData: FlTitlesData(
-            topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            topTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+            rightTitles:
+                const AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
                 getTitlesWidget: (value, _) {
                   final idx = value.toInt();
-                  if (idx < 0 || idx >= days.length) return const SizedBox.shrink();
+                  if (idx < 0 || idx >= days.length) {
+                    return const SizedBox.shrink();
+                  }
                   return Padding(
                     padding: const EdgeInsets.only(top: 6),
                     child: Text(days[idx], style: const TextStyle(fontSize: 11)),
@@ -267,7 +415,7 @@ class _DashboardContentState extends State<DashboardContent> {
     };
 
     return SizedBox(
-      height: 200,
+      height: 180,
       child: Row(
         children: [
           Expanded(
@@ -280,9 +428,9 @@ class _DashboardContentState extends State<DashboardContent> {
                     .map(
                       (e) => PieChartSectionData(
                         value: e.value.toDouble(),
-                        title: '${(e.value / total * 100).round()}%',
-                        color: colorMap[e.key] ?? Colors.grey,
-                        radius: 42,
+                        title: '${(e.value / total * 100).toInt()}%',
+                        color: colorMap[e.key],
+                        radius: 40,
                         titleStyle: const TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
@@ -338,7 +486,8 @@ class _DashboardContentState extends State<DashboardContent> {
         return ListTile(
           leading: CircleAvatar(
             radius: 16,
-            backgroundColor: _statusColor(record.status).withValues(alpha: 0.15),
+            backgroundColor:
+                _statusColor(record.status).withValues(alpha: 0.15),
             child: Icon(
               _statusIcon(record.status),
               size: 18,
@@ -347,7 +496,8 @@ class _DashboardContentState extends State<DashboardContent> {
           ),
           title: Text(
             record.studentName ?? 'Student #${record.studentId}',
-            style: theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+            style:
+                theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
           subtitle: Text(
             '${record.status.label} on ${DateFormat('d MMM yyyy').format(record.date)}',

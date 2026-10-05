@@ -1,4 +1,4 @@
-﻿import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/sync_queue_item.dart';
 
 /// Repository managing offline queue mutations in SQLite.

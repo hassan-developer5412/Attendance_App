@@ -1,5 +1,6 @@
-﻿import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 class FacultyRepository {
   FacultyRepository({DatabaseHelper? dbHelper})
@@ -54,7 +55,10 @@ class FacultyRepository {
   }) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
+    final uuid = UuidUtils.generate();
+    final resolvedEmployeeCode = employeeCode ?? 'FAC-${DateTime.now().millisecondsSinceEpoch % 100000}';
     final rowMap = {
+      'uuid': uuid,
       'name': name.trim(),
       'subject': subject.trim(),
       'email': email.trim(),
@@ -62,7 +66,7 @@ class FacultyRepository {
       'password': password.trim(),
       'class_id': classId,
       'is_active': 1,
-      'employee_code': employeeCode,
+      'employee_code': resolvedEmployeeCode,
       'designation': designation,
       'department_id': departmentId,
       'created_at': now,
@@ -71,29 +75,19 @@ class FacultyRepository {
       'is_deleted': 0,
     };
     final id = await db.insert('teachers', rowMap);
-    final teacher = Teacher(
+    return Teacher(
       id: id,
+      uuid: uuid,
       name: name.trim(),
       subject: subject.trim(),
       email: email.trim(),
       username: username.trim(),
       password: password.trim(),
       classId: classId,
-      employeeCode: employeeCode ?? 'FAC-$id',
+      employeeCode: resolvedEmployeeCode,
       designation: designation,
       departmentId: departmentId,
     );
-    // Persist deterministic UUID and employee code
-    await db.update(
-      'teachers',
-      {
-        'uuid': teacher.uuid,
-        'employee_code': teacher.employeeCode,
-      },
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    return teacher;
   }
 
   Future<void> update(Teacher teacher) async {

@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/repositories/leave_repository.dart';

@@ -9,6 +9,10 @@ class AttendanceSession {
     required this.departmentId,
     required this.facultyId,
     required this.sessionDate,
+    this.academicSessionId = '',
+    this.classId,
+    this.year = '',
+    this.subjectId,
     this.remarks = '',
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -23,6 +27,10 @@ class AttendanceSession {
   final String departmentId;
   final String facultyId;
   final String sessionDate; // YYYY-MM-DD
+  final String academicSessionId;
+  final int? classId;
+  final String year;
+  final int? subjectId;
   final String remarks;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -36,6 +44,18 @@ class AttendanceSession {
       departmentId: (map['department_id'] as String?) ?? '',
       facultyId: (map['faculty_id'] as String?) ?? '',
       sessionDate: (map['session_date'] as String?) ?? '',
+      academicSessionId: (map['academic_session_id'] as String?) ?? '',
+      classId: map['class_id'] is int
+          ? map['class_id'] as int
+          : (map['class_id'] != null
+              ? int.tryParse(map['class_id'].toString())
+              : null),
+      year: (map['year'] as String?) ?? '',
+      subjectId: map['subject_id'] is int
+          ? map['subject_id'] as int
+          : (map['subject_id'] != null
+              ? int.tryParse(map['subject_id'].toString())
+              : null),
       remarks: (map['remarks'] as String?) ?? '',
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
@@ -55,6 +75,10 @@ class AttendanceSession {
       'department_id': departmentId,
       'faculty_id': facultyId,
       'session_date': sessionDate,
+      'academic_session_id': academicSessionId,
+      'class_id': classId,
+      'year': year,
+      'subject_id': subjectId,
       'remarks': remarks,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -70,6 +94,10 @@ class AttendanceSession {
       'department_id': departmentId,
       'faculty_id': facultyId,
       'session_date': sessionDate,
+      'academic_session_id': academicSessionId,
+      'class_id': classId,
+      'year': year,
+      'subject_id': subjectId,
       'remarks': remarks,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -84,6 +112,10 @@ class AttendanceSession {
     String? departmentId,
     String? facultyId,
     String? sessionDate,
+    String? academicSessionId,
+    int? classId,
+    String? year,
+    int? subjectId,
     String? remarks,
     DateTime? createdAt,
     DateTime? updatedAt,
@@ -96,6 +128,10 @@ class AttendanceSession {
       departmentId: departmentId ?? this.departmentId,
       facultyId: facultyId ?? this.facultyId,
       sessionDate: sessionDate ?? this.sessionDate,
+      academicSessionId: academicSessionId ?? this.academicSessionId,
+      classId: classId ?? this.classId,
+      year: year ?? this.year,
+      subjectId: subjectId ?? this.subjectId,
       remarks: remarks ?? this.remarks,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,

@@ -1,7 +1,8 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/repositories/class_repository.dart';
 import 'package:attendance_app/core/repositories/faculty_repository.dart';
@@ -25,9 +26,12 @@ class _FakeClassRepo extends ClassRepository {
   @override
   Future<SchoolClass> insert({
     required String name,
-    required String section,
-    required String room,
+    String section = '',
+    String room = '',
     String? departmentId,
+    String? academicSessionId,
+    String? className,
+    String currentYear = '',
   }) async {
     final c = SchoolClass(
       id: _nextId++,
@@ -35,6 +39,9 @@ class _FakeClassRepo extends ClassRepository {
       section: section,
       room: room,
       departmentId: departmentId,
+      academicSessionId: academicSessionId,
+      className: className ?? name,
+      currentYear: currentYear,
     );
     items.insert(0, c);
     return c;
@@ -110,7 +117,8 @@ class _FakeStudentRepo extends StudentRepository {
     String? registrationNo,
     String fatherName = '',
     String? departmentId,
-    String currentSemester = '1st',
+    String? academicSessionId,
+    String currentYear = '1st Year',
     String status = 'ACTIVE',
   }) async {
     final s = Student(
@@ -121,7 +129,8 @@ class _FakeStudentRepo extends StudentRepository {
       registrationNo: registrationNo ?? 'REG-$rollNumber',
       fatherName: fatherName,
       departmentId: departmentId,
-      currentSemester: currentSemester,
+      academicSessionId: academicSessionId,
+      currentYear: currentYear,
       status: status,
     );
     items.insert(0, s);
@@ -148,6 +157,12 @@ class _FakeSubjectRepo extends SubjectRepository {
     required String code,
     required String teacherName,
     required int classId,
+    String? departmentId,
+    String? academicSessionId,
+    String year = '',
+    SubjectType subjectType = SubjectType.theory,
+    double contactHours = 0,
+    int? teacherId,
   }) async {
     final s = Subject(
       id: _nextId++,
@@ -155,6 +170,12 @@ class _FakeSubjectRepo extends SubjectRepository {
       code: code,
       teacherName: teacherName,
       classId: classId,
+      departmentId: departmentId,
+      academicSessionId: academicSessionId,
+      year: year,
+      subjectType: subjectType,
+      contactHours: contactHours,
+      teacherId: teacherId,
     );
     items.insert(0, s);
     return s;

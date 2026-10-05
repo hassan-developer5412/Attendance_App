@@ -1,4 +1,4 @@
-﻿import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/user.dart';
 
 class UserRepository {

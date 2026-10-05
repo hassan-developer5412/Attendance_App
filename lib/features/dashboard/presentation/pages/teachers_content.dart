@@ -5,7 +5,8 @@ import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 
-/// Staff directory for teachers with admin add and delete actions.
+/// Staff directory for teachers with admin add, edit, and delete actions,
+/// displaying department affiliation, designation, employee code, and assigned subjects with academic context.
 class TeachersContent extends StatefulWidget {
   const TeachersContent({super.key});
 
@@ -36,7 +37,9 @@ class _TeachersContentState extends State<TeachersContent> {
         .where(
           (teacher) =>
               teacher.name.toLowerCase().contains(query) ||
-              teacher.subject.toLowerCase().contains(query),
+              teacher.subject.toLowerCase().contains(query) ||
+              teacher.designation.toLowerCase().contains(query) ||
+              (teacher.employeeCode ?? '').toLowerCase().contains(query),
         )
         .toList();
   }
@@ -80,6 +83,8 @@ class _TeachersContentState extends State<TeachersContent> {
       context: context,
       builder: (ctx) => AddTeacherDialog(
         subjects: store.subjectsSortedByAssignment,
+        departments: store.activeDepartments,
+        classes: store.classes,
       ),
     );
 
@@ -91,6 +96,10 @@ class _TeachersContentState extends State<TeachersContent> {
       username: result.username,
       password: result.password,
       subjectIds: result.subjectIds,
+      departmentId: result.departmentId,
+      employeeCode: result.employeeCode,
+      designation: result.designation,
+      classId: result.classId,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -104,7 +113,7 @@ class _TeachersContentState extends State<TeachersContent> {
   /// Returns the IDs of subjects currently assigned to a given teacher.
   Set<int> _assignedSubjectIds(InstituteStore store, Teacher teacher) {
     return store.subjects
-        .where((s) => s.teacherName == teacher.name)
+        .where((s) => s.teacherId == teacher.id || s.teacherName == teacher.name)
         .map((s) => s.id)
         .toSet();
   }
@@ -116,6 +125,7 @@ class _TeachersContentState extends State<TeachersContent> {
         teacher: teacher,
         subjects: store.subjectsSortedByAssignment,
         assignedSubjectIds: _assignedSubjectIds(store, teacher),
+        departments: store.activeDepartments,
       ),
     );
 
@@ -128,11 +138,15 @@ class _TeachersContentState extends State<TeachersContent> {
       username: result.username,
       password: result.password,
       subjectIds: result.subjectIds,
+      departmentId: result.departmentId,
+      employeeCode: result.employeeCode,
+      designation: result.designation,
+      classId: result.classId,
     );
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Teacher updated'),
+        content: Text('Teacher profile updated'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -145,6 +159,8 @@ class _TeachersContentState extends State<TeachersContent> {
   ) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final dept = store.departmentById(teacher.departmentId);
+    final assignedSubjects = store.subjectsForTeacher(teacher.id);
 
     showModalBottomSheet<void>(
       context: context,
@@ -157,66 +173,199 @@ class _TeachersContentState extends State<TeachersContent> {
         return SafeArea(
           child: Padding(
             padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircleAvatar(
-                  radius: 36,
-                  backgroundColor: colorScheme.primaryContainer,
-                  child: Text(
-                    teacher.initials,
-                    style: theme.textTheme.headlineSmall?.copyWith(
-                      color: colorScheme.onPrimaryContainer,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Column(
+                      children: [
+                        CircleAvatar(
+                          radius: 36,
+                          backgroundColor: colorScheme.primaryContainer,
+                          child: Text(
+                            teacher.initials,
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              color: colorScheme.onPrimaryContainer,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          teacher.name,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (dept != null) ...[
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: colorScheme.secondaryContainer,
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: Text(
+                                  dept.code,
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: colorScheme.onSecondaryContainer,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                            ],
+                            Text(
+                              teacher.designation,
+                              style: theme.textTheme.bodyMedium?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                            if (teacher.employeeCode != null &&
+                                teacher.employeeCode!.isNotEmpty) ...[
+                              Text(
+                                ' • #${teacher.employeeCode}',
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  const Divider(),
+                  const SizedBox(height: 8),
+
+                  // Contact / Account Info
+                  _infoRow(Icons.email_outlined, 'Email', teacher.email),
+                  _infoRow(
+                      Icons.alternate_email_rounded, 'Username', teacher.username),
+                  if (dept != null)
+                    _infoRow(Icons.apartment_rounded, 'Department',
+                        '${dept.code} — ${dept.name}'),
+
+                  const SizedBox(height: 16),
+                  Text(
+                    'Assigned Subjects (${assignedSubjects.length})',
+                    style: theme.textTheme.titleSmall?.copyWith(
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  teacher.name,
-                  style: theme.textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.bold,
+                  const SizedBox(height: 8),
+                  if (assignedSubjects.isEmpty)
+                    Text(
+                      'No subjects currently assigned to this faculty member.',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    )
+                  else
+                    ...assignedSubjects.map((sub) {
+                      final cls = store.classById(sub.classId);
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 6),
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: BorderSide(color: colorScheme.outlineVariant),
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 8),
+                          child: Row(
+                            children: [
+                              Icon(Icons.book_outlined,
+                                  size: 18, color: colorScheme.primary),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      '${sub.name} (${sub.code})',
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w600,
+                                          fontSize: 13),
+                                    ),
+                                    Text(
+                                      '${cls?.displayName ?? 'Class'} • ${sub.subjectType.label} • ${sub.contactHoursPerWeek.toStringAsFixed(1)} hrs/wk',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: colorScheme.onSurfaceVariant,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+
+                  const SizedBox(height: 16),
+                  const Divider(),
+                  ListTile(
+                    leading:
+                        Icon(Icons.edit_outlined, color: colorScheme.primary),
+                    title: const Text('Edit teacher profile'),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _showEditDialog(store, teacher);
+                    },
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  teacher.subject.isEmpty
-                      ? 'No subjects assigned'
-                      : teacher.subject,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
+                  ListTile(
+                    leading:
+                        Icon(Icons.delete_outline_rounded, color: colorScheme.error),
+                    title: const Text('Delete teacher'),
+                    onTap: () {
+                      Navigator.of(ctx).pop();
+                      _confirmDelete(store, teacher);
+                    },
                   ),
-                ),
-                const SizedBox(height: 12),
-                Text(
-                  teacher.isActive ? 'Active Teacher' : 'Inactive Teacher',
-                  style: theme.textTheme.labelMedium?.copyWith(
-                    color: teacher.isActive ? Colors.green : Colors.grey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: Icon(Icons.edit_outlined, color: colorScheme.primary),
-                  title: const Text('Edit teacher'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    _showEditDialog(store, teacher);
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.delete_outline_rounded, color: colorScheme.error),
-                  title: const Text('Delete teacher'),
-                  onTap: () {
-                    Navigator.of(ctx).pop();
-                    _confirmDelete(store, teacher);
-                  },
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         );
       },
+    );
+  }
+
+  Widget _infoRow(IconData icon, String label, String value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ',
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -239,7 +388,7 @@ class _TeachersContentState extends State<TeachersContent> {
               crossAxisAlignment: WrapCrossAlignment.center,
               children: [
                 Text(
-                  'Teachers',
+                  'Faculty Directory',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.bold,
                   ),
@@ -263,7 +412,8 @@ class _TeachersContentState extends State<TeachersContent> {
               controller: _searchController,
               onChanged: (value) => setState(() => _searchQuery = value),
               decoration: InputDecoration(
-                hintText: 'Search teachers by name or subject...',
+                hintText:
+                    'Search teachers by name, subject, designation, or code...',
                 prefixIcon: Icon(
                   Icons.search_rounded,
                   color: colorScheme.onSurfaceVariant,
@@ -299,8 +449,16 @@ class _TeachersContentState extends State<TeachersContent> {
                       padding: const EdgeInsets.only(bottom: 24),
                       itemBuilder: (context, index) {
                         final teacher = teachers[index];
+                        final dept = store.departmentById(teacher.departmentId);
+                        final assignedSubs =
+                            store.subjectsForTeacher(teacher.id);
+
                         return Card(
                           margin: const EdgeInsets.symmetric(vertical: 6),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            side: BorderSide(color: colorScheme.outlineVariant),
+                          ),
                           child: InkWell(
                             borderRadius: BorderRadius.circular(12),
                             onTap: () =>
@@ -311,10 +469,12 @@ class _TeachersContentState extends State<TeachersContent> {
                                 children: [
                                   CircleAvatar(
                                     radius: 24,
-                                    backgroundColor: colorScheme.primaryContainer,
+                                    backgroundColor:
+                                        colorScheme.primaryContainer,
                                     child: Text(
                                       teacher.initials,
-                                      style: theme.textTheme.titleMedium?.copyWith(
+                                      style:
+                                          theme.textTheme.titleMedium?.copyWith(
                                         color: colorScheme.onPrimaryContainer,
                                         fontWeight: FontWeight.bold,
                                       ),
@@ -323,14 +483,16 @@ class _TeachersContentState extends State<TeachersContent> {
                                   const SizedBox(width: 14),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Row(
                                           children: [
                                             Flexible(
                                               child: Text(
                                                 teacher.name,
-                                                style: theme.textTheme.titleMedium
+                                                style: theme
+                                                    .textTheme.titleMedium
                                                     ?.copyWith(
                                                   fontWeight: FontWeight.bold,
                                                 ),
@@ -338,6 +500,29 @@ class _TeachersContentState extends State<TeachersContent> {
                                               ),
                                             ),
                                             const SizedBox(width: 8),
+                                            if (dept != null)
+                                              Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 1),
+                                                decoration: BoxDecoration(
+                                                  color: colorScheme
+                                                      .secondaryContainer,
+                                                  borderRadius:
+                                                      BorderRadius.circular(4),
+                                                ),
+                                                child: Text(
+                                                  dept.code,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    fontWeight: FontWeight.bold,
+                                                    color: colorScheme
+                                                        .onSecondaryContainer,
+                                                  ),
+                                                ),
+                                              ),
+                                            const SizedBox(width: 6),
                                             Container(
                                               width: 8,
                                               height: 8,
@@ -352,12 +537,25 @@ class _TeachersContentState extends State<TeachersContent> {
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
-                                          teacher.subject.isEmpty
-                                              ? 'No subjects assigned'
-                                              : teacher.subject,
+                                          '${teacher.designation}${teacher.employeeCode != null && teacher.employeeCode!.isNotEmpty ? ' • Code: ${teacher.employeeCode}' : ''}',
                                           style: theme.textTheme.bodySmall
                                               ?.copyWith(
                                             color: colorScheme.onSurfaceVariant,
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          assignedSubs.isEmpty
+                                              ? 'No subjects assigned'
+                                              : assignedSubs
+                                                  .map((s) =>
+                                                      '${s.name} (${store.classLabel(s.classId)})')
+                                                  .join(', '),
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: colorScheme.primary,
+                                            fontSize: 11,
                                           ),
                                           overflow: TextOverflow.ellipsis,
                                         ),

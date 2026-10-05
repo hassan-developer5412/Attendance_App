@@ -1,5 +1,6 @@
-﻿import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 class StudentRepository {
   StudentRepository({DatabaseHelper? dbHelper})
@@ -52,6 +53,17 @@ class StudentRepository {
     return rows.map(Student.fromMap).toList();
   }
 
+  Future<List<Student>> getByClassAndYear(int classId, String year) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'students',
+      where: 'class_id = ? AND current_year = ? AND is_deleted = 0',
+      whereArgs: [classId, year],
+      orderBy: 'name ASC',
+    );
+    return rows.map(Student.fromMap).toList();
+  }
+
   Future<Student> insert({
     required String name,
     required String rollNumber,
@@ -59,12 +71,15 @@ class StudentRepository {
     String? registrationNo,
     String fatherName = '',
     String? departmentId,
-    String currentSemester = '1st',
+    String? academicSessionId,
+    String currentYear = '1st Year',
     String status = 'ACTIVE',
   }) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
+    final uuid = UuidUtils.generate();
     final rowMap = {
+      'uuid': uuid,
       'name': name.trim(),
       'roll_number': rollNumber.trim(),
       'class_id': classId,
@@ -74,7 +89,8 @@ class StudentRepository {
       'registration_no': registrationNo ?? 'REG-${rollNumber.trim()}',
       'father_name': fatherName.trim(),
       'department_id': departmentId,
-      'current_semester': currentSemester,
+      'academic_session_id': academicSessionId,
+      'current_year': currentYear,
       'status': status,
       'created_at': now,
       'updated_at': now,
@@ -82,25 +98,19 @@ class StudentRepository {
       'is_deleted': 0,
     };
     final id = await db.insert('students', rowMap);
-    final student = Student(
+    return Student(
       id: id,
+      uuid: uuid,
       name: name.trim(),
       rollNumber: rollNumber.trim(),
       classId: classId,
       registrationNo: registrationNo ?? 'REG-${rollNumber.trim()}',
       fatherName: fatherName.trim(),
       departmentId: departmentId,
-      currentSemester: currentSemester,
+      academicSessionId: academicSessionId,
+      currentYear: currentYear,
       status: status,
     );
-    // Persist deterministic UUID
-    await db.update(
-      'students',
-      {'uuid': student.uuid},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    return student;
   }
 
   Future<void> update(Student student) async {
@@ -118,7 +128,8 @@ class StudentRepository {
         'registration_no': student.registrationNo,
         'father_name': student.fatherName.trim(),
         'department_id': student.departmentId,
-        'current_semester': student.currentSemester,
+        'academic_session_id': student.academicSessionId,
+        'current_year': student.currentYear,
         'status': student.status,
         'updated_at': now,
         'sync_status': 'PENDING',

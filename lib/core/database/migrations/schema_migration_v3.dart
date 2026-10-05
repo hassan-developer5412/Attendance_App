@@ -1,4 +1,4 @@
-﻿import 'package:sqflite/sqflite.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 

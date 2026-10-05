@@ -1,5 +1,6 @@
-﻿import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 class ClassRepository {
   ClassRepository({DatabaseHelper? dbHelper})
@@ -41,40 +42,70 @@ class ClassRepository {
     return SchoolClass.fromMap(rows.first);
   }
 
+  /// Classes filtered by department and/or academic session.
+  Future<List<SchoolClass>> getByContext({
+    String? departmentId,
+    String? academicSessionId,
+  }) async {
+    final db = await _dbHelper.database;
+    final where = <String>['is_deleted = 0'];
+    final args = <Object?>[];
+    if (departmentId != null && departmentId.isNotEmpty) {
+      where.add('department_id = ?');
+      args.add(departmentId);
+    }
+    if (academicSessionId != null && academicSessionId.isNotEmpty) {
+      where.add('academic_session_id = ?');
+      args.add(academicSessionId);
+    }
+    final rows = await db.query(
+      'classes',
+      where: where.join(' AND '),
+      whereArgs: args,
+      orderBy: 'class_name ASC, current_year ASC',
+    );
+    return rows.map(SchoolClass.fromMap).toList();
+  }
+
   Future<SchoolClass> insert({
     required String name,
-    required String section,
-    required String room,
+    String section = '',
+    String room = '',
     String? departmentId,
+    String? academicSessionId,
+    String? className,
+    String currentYear = '',
   }) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
+    final resolvedClassName = (className ?? name).trim();
+    final uuid = UuidUtils.generate();
     final rowMap = {
+      'uuid': uuid,
       'name': name.trim(),
       'section': section.trim(),
       'room': room.trim(),
+      'class_name': resolvedClassName,
+      'current_year': currentYear.trim(),
       'department_id': departmentId,
+      'academic_session_id': academicSessionId,
       'created_at': now,
       'updated_at': now,
       'sync_status': 'PENDING',
       'is_deleted': 0,
     };
     final id = await db.insert('classes', rowMap);
-    final schoolClass = SchoolClass(
+    return SchoolClass(
       id: id,
+      uuid: uuid,
       name: name.trim(),
       section: section.trim(),
       room: room.trim(),
+      className: resolvedClassName,
+      currentYear: currentYear.trim(),
       departmentId: departmentId,
+      academicSessionId: academicSessionId,
     );
-    // Persist generated deterministic UUID
-    await db.update(
-      'classes',
-      {'uuid': schoolClass.uuid},
-      where: 'id = ?',
-      whereArgs: [id],
-    );
-    return schoolClass;
   }
 
   Future<void> update(SchoolClass schoolClass) async {
@@ -86,7 +117,10 @@ class ClassRepository {
         'name': schoolClass.name.trim(),
         'section': schoolClass.section.trim(),
         'room': schoolClass.room.trim(),
+        'class_name': schoolClass.className.trim(),
+        'current_year': schoolClass.currentYear.trim(),
         'department_id': schoolClass.departmentId,
+        'academic_session_id': schoolClass.academicSessionId,
         'updated_at': now,
         'sync_status': 'PENDING',
       },

@@ -17,7 +17,13 @@ class AppConstants {
 
   // Database
   static const String databaseName = 'attendance_app.db';
-  static const int databaseVersion = 3;
+
+  /// Schema version history:
+  /// 1 — original schema
+  /// 2 — teacher credentials
+  /// 3 — UUID / sync metadata + departments, sessions, inventory, sync queue
+  /// 4 — academic sessions, class year structure, subject-based attendance
+  static const int databaseVersion = 4;
 
   // Default seeded admin credentials (used on first launch only)
   static const String defaultAdminUsername = 'admin';
@@ -27,22 +33,110 @@ class AppConstants {
 }
 
 /// Academic departments supported at GILT.
+///
+/// The institute is organised by department → academic session → class → year.
+/// It does **not** use a semester system.
 enum AcademicDepartment {
-  daeCit('DAE-CIT', 'Computer Information Technology'),
-  daeLt('DAE-LT', 'Leather Technology'),
-  daeFw('DAE-FW', 'Footwear Technology'),
-  shortCourses('SHORT-COURSES', 'Vocational & Certificate Programs');
+  daeCit(
+    'DAE-CIT',
+    'Computer Information Technology',
+    ['CIT'],
+  ),
+  daeLt(
+    'DAE-LT',
+    'Leather Technology',
+    ['LT'],
+  ),
+  daeFw(
+    'DAE-FW',
+    'Footwear Technology',
+    ['FW'],
+  ),
+  shortCourses(
+    'SHORT-COURSES',
+    'Vocational & Certificate Programs',
+    <String>[],
+  );
 
-  const AcademicDepartment(this.code, this.title);
+  const AcademicDepartment(this.code, this.title, this.classPrograms);
 
   final String code;
   final String title;
+
+  /// Canonical class/program codes offered by this department
+  /// (e.g. DAE-CIT teaches the [CIT] program).
+  final List<String> classPrograms;
 
   static AcademicDepartment? fromCode(String code) {
     for (final d in AcademicDepartment.values) {
       if (d.code.toUpperCase() == code.toUpperCase()) return d;
     }
     return null;
+  }
+}
+
+/// The academic years an institute class can run for.
+///
+/// `CIT` / `LT` / `FW` represent the class/program; `1st Year`, `2nd Year`
+/// and `3rd Year` represent the student's current academic year. These are
+/// **not** semesters.
+class AcademicYears {
+  AcademicYears._();
+
+  static const String firstYear = '1st Year';
+  static const String secondYear = '2nd Year';
+  static const String thirdYear = '3rd Year';
+
+  /// Standard year labels offered by GILT diploma programs.
+  static const List<String> labels = <String>[
+    firstYear,
+    secondYear,
+    thirdYear,
+  ];
+
+  static const String defaultValue = firstYear;
+
+  /// Normalises a stored/legacy value into a canonical year label.
+  ///
+  /// Unknown or blank values fall back to [defaultValue].
+  static String normalise(String? value) {
+    final trimmed = value?.trim() ?? '';
+    if (trimmed.isEmpty) return defaultValue;
+    for (final label in labels) {
+      if (label.toLowerCase() == trimmed.toLowerCase()) return label;
+    }
+    // Accept short forms like "1", "1st", "year 2", "2nd".
+    final digit = RegExp(r'(\d)').firstMatch(trimmed)?.group(1);
+    switch (digit) {
+      case '1':
+        return '1st Year';
+      case '2':
+        return '2nd Year';
+      case '3':
+        return '3rd Year';
+      default:
+        return defaultValue;
+    }
+  }
+}
+
+/// The type of a subject offering.
+enum SubjectType {
+  theory('THEORY', 'Theory'),
+  practical('PRACTICAL', 'Practical'),
+  both('BOTH', 'Theory & Practical');
+
+  const SubjectType(this.code, this.label);
+
+  final String code;
+  final String label;
+
+  static SubjectType fromString(String? value) {
+    final raw = value?.trim().toUpperCase() ?? '';
+    for (final type in SubjectType.values) {
+      if (type.code == raw || type.name.toUpperCase() == raw) return type;
+    }
+    return SubjectType.theory;
   }
 }
 

@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/constants/app_constants.dart';
+import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
+import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/utils/uuid_utils.dart';
+import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 
-/// Settings page with profile editing backed by the database.
+/// Settings page with profile editing, academic session management, and department directory.
 class SettingsContent extends StatefulWidget {
   const SettingsContent({super.key});
 
@@ -43,14 +49,46 @@ class _SettingsContentState extends State<SettingsContent> {
     );
   }
 
+  Future<void> _showAddAcademicSessionDialog(InstituteStore store) async {
+    final result = await showDialog<AddAcademicSessionResult>(
+      context: context,
+      builder: (ctx) => const AddAcademicSessionDialog(),
+    );
+
+    if (result == null || !mounted) return;
+
+    final session = AcademicSession(
+      id: UuidUtils.generate(),
+      name: result.name,
+      startDate: result.startDate,
+      endDate: result.endDate,
+      isCurrent: result.isCurrent,
+      createdAt: DateTime.now(),
+      updatedAt: DateTime.now(),
+    );
+
+    await store.addAcademicSession(session);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Academic Session ${session.name} created'),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final authStore = context.watch<AuthStore>();
+    final instituteStore = context.watch<InstituteStore>();
     final user = authStore.currentUser;
     final displayName = user?.displayName ?? 'User';
     final email = user?.email ?? '';
+
+    final sessions = instituteStore.academicSessions;
+    final departments = instituteStore.departments;
 
     return SafeArea(
       child: SingleChildScrollView(
@@ -59,12 +97,12 @@ class _SettingsContentState extends State<SettingsContent> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Settings',
+              'Settings & Administration',
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 24),
+            const SizedBox(height: 20),
 
             // Profile Section
             Text(
@@ -73,8 +111,13 @@ class _SettingsContentState extends State<SettingsContent> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 10),
             Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Row(
@@ -123,6 +166,162 @@ class _SettingsContentState extends State<SettingsContent> {
             ),
             const SizedBox(height: 24),
 
+            // Academic Sessions Management
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  'Academic Sessions',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () =>
+                      _showAddAcademicSessionDialog(instituteStore),
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('Add Session'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
+              child: ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: sessions.length,
+                separatorBuilder: (context, index) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final s = sessions[index];
+                  return ListTile(
+                    leading: Icon(
+                      s.isCurrent
+                          ? Icons.radio_button_checked_rounded
+                          : Icons.radio_button_off_rounded,
+                      color: s.isCurrent
+                          ? colorScheme.primary
+                          : colorScheme.onSurfaceVariant,
+                    ),
+                    title: Row(
+                      children: [
+                        Text(
+                          s.name,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        if (s.isCurrent) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: Colors.green.withValues(alpha: 0.15),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: const Text(
+                              'ACTIVE',
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                    subtitle: Text(
+                      '${DateFormat('d MMM yyyy').format(s.startDate)} — ${DateFormat('d MMM yyyy').format(s.endDate)}',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    trailing: s.isCurrent
+                        ? null
+                        : TextButton(
+                            onPressed: () =>
+                                instituteStore.setCurrentAcademicSession(s.id),
+                            child: const Text('Set as Active'),
+                          ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+
+            // Academic Departments Directory
+            Text(
+              'Academic Departments (${departments.length})',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
+              child: ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: departments.length,
+                separatorBuilder: (context, index) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final dept = departments[index];
+                  final deptEnum = AcademicDepartment.fromCode(dept.code);
+                  return ListTile(
+                    leading: CircleAvatar(
+                      radius: 18,
+                      backgroundColor: colorScheme.secondaryContainer,
+                      child: Text(
+                        dept.code,
+                        style: TextStyle(
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: colorScheme.onSecondaryContainer,
+                        ),
+                      ),
+                    ),
+                    title: Text(
+                      dept.name,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: Text(
+                      deptEnum != null && deptEnum.classPrograms.isNotEmpty
+                          ? 'Programs: ${deptEnum.classPrograms.join(', ')}'
+                          : (dept.description.isNotEmpty
+                              ? dept.description
+                              : 'Academic Department'),
+                      style: theme.textTheme.bodySmall,
+                    ),
+                    trailing: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: dept.isActive
+                            ? Colors.green.withValues(alpha: 0.15)
+                            : Colors.grey.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: Text(
+                        dept.isActive ? 'Active' : 'Inactive',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                          color: dept.isActive ? Colors.green : Colors.grey,
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // Preferences
             Text(
               'Preferences',
@@ -130,44 +329,60 @@ class _SettingsContentState extends State<SettingsContent> {
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Card(
-              child: Column(
-                children: [
-                  SwitchListTile(
-                    title: const Text('Notifications'),
-                    subtitle: const Text('Receive attendance alerts'),
-                    value: _notificationsEnabled,
-                    onChanged: (value) {
-                      setState(() => _notificationsEnabled = value);
-                    },
-                    secondary: const Icon(Icons.notifications_outlined),
-                  ),
-                ],
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
+              child: SwitchListTile(
+                title: const Text('Notifications'),
+                subtitle: const Text('Receive attendance alerts & notifications'),
+                value: _notificationsEnabled,
+                onChanged: (value) {
+                  setState(() => _notificationsEnabled = value);
+                },
+                secondary: const Icon(Icons.notifications_outlined),
               ),
             ),
             const SizedBox(height: 24),
 
             // About
             Text(
-              'About',
+              'About System',
               style: theme.textTheme.titleMedium?.copyWith(
                 fontWeight: FontWeight.bold,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.info_outline_rounded),
-                    title: const Text('Version'),
-                    subtitle: const Text('1.0.0'),
+                  const ListTile(
+                    leading: Icon(Icons.school_rounded),
+                    title: Text('Institution'),
+                    subtitle: Text('Govt. Institute of Leather Technology (GILT)'),
                   ),
-                  ListTile(
-                    leading: const Icon(Icons.storage_rounded),
-                    title: const Text('Database'),
-                    subtitle: const Text('SQLite (local)'),
+                  const ListTile(
+                    leading: Icon(Icons.info_outline_rounded),
+                    title: Text('Academic Structure'),
+                    subtitle: Text('Department → Academic Session → Class → Year → Subject'),
+                  ),
+                  const ListTile(
+                    leading: Icon(Icons.app_shortcut_rounded),
+                    title: Text('Application Version'),
+                    subtitle: Text('2.0.0 (Subject-Based Attendance)'),
+                  ),
+                  const ListTile(
+                    leading: Icon(Icons.storage_rounded),
+                    title: Text('Database Engine'),
+                    subtitle: Text('SQLite Local Database (Migration V4)'),
                   ),
                 ],
               ),
