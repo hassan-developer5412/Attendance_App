@@ -22,7 +22,7 @@ class SupabaseConfig {
     defaultValue: '',
   );
   static const String _defineKey = String.fromEnvironment(
-    'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhibWxseXdseGtrZnh0eWN2cXd4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTEzNjM0MTMsImV4cCI6MjEwNjkzOTQxM30.sHKaosJ0FK6jiQO3IhiiUfQ8SpEzyyUoKYooKJurjQM',
+    'sb_publishable_B5f-ZSNXgE0ultSJ8OJBfA_Xq98-jco',
     defaultValue: '',
   );
 
