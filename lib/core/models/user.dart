@@ -87,6 +87,25 @@ class User {
     };
   }
 
+  /// Supabase replication payload: canonical uuid as `id`, JSON-native types,
+  /// and no local-only bookkeeping (`sync_status`, `is_synced`).
+  ///
+  /// The local `password_hash` column is **never** included — credentials
+  /// stay on-device and in Supabase Auth only. `institute_id` is stamped
+  /// centrally by `SyncService` at send time.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': id,
+      'username': username,
+      'display_name': displayName,
+      'email': email,
+      'role': role.value,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'is_deleted': isDeleted,
+    };
+  }
+
   User copyWith({
     String? id,
     String? username,

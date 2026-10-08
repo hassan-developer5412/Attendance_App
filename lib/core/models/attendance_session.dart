@@ -106,6 +106,27 @@ class AttendanceSession {
     };
   }
 
+  /// Supabase replication payload: mirrors the local row with JSON-native
+  /// types and excludes local-only bookkeeping (`sync_status`, `is_synced`).
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': id,
+      'subject_code': subjectCode,
+      'department_id': departmentId,
+      'faculty_id': facultyId,
+      'session_date': sessionDate,
+      'academic_session_id': academicSessionId,
+      'class_id': classId,
+      'year': year,
+      'subject_id': subjectId,
+      'remarks': remarks,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'is_deleted': isDeleted,
+    };
+  }
+
   AttendanceSession copyWith({
     String? id,
     String? subjectCode,

@@ -23,13 +23,21 @@ class AppConstants {
   /// 2 — teacher credentials
   /// 3 — UUID / sync metadata + departments, sessions, inventory, sync queue
   /// 4 — academic sessions, class year structure, subject-based attendance
-  static const int databaseVersion = 4;
+  /// 5 — Supabase replication columns (institute_id, is_synced)
+  static const int databaseVersion = 5;
 
   // Default seeded admin credentials (used on first launch only)
   static const String defaultAdminUsername = 'admin';
   static const String defaultAdminPassword = 'Admin@123';
   static const String defaultAdminDisplayName = 'Administrator';
   static const String defaultAdminEmail = 'admin@institute.edu';
+
+  /// Tenant id used for all local rows and Supabase payloads until a
+  /// signed-in user's `institute_id` metadata overrides it.
+  static const String defaultInstituteId = 'default_institute';
+
+  /// SharedPreferences key holding the active institute (tenant) id.
+  static const String prefInstituteId = 'pref_institute_id';
 }
 
 /// Academic departments supported at GILT.

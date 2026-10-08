@@ -1,5 +1,6 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 
 class LeaveRepository {
   LeaveRepository({DatabaseHelper? dbHelper})
@@ -48,6 +49,11 @@ class LeaveRepository {
     final intId = await db.insert('leave_requests', rowMap);
     // Keep the canonical UUID as the model id; the legacy auto-increment value is only the physical row key.
     assert(intId > 0);
+    SyncService.instance.schedulePush(
+      'leave_requests',
+      idColumn: 'uuid',
+      idValue: request.id,
+    );
     return request;
   }
 
@@ -64,6 +70,11 @@ class LeaveRepository {
       where: 'uuid = ? OR CAST(id AS TEXT) = ?',
       whereArgs: [id, id],
     );
+    SyncService.instance.schedulePush(
+      'leave_requests',
+      idColumn: 'uuid',
+      idValue: id,
+    );
   }
 
   Future<void> softDelete(String id) async {
@@ -78,6 +89,11 @@ class LeaveRepository {
       },
       where: 'uuid = ? OR CAST(id AS TEXT) = ?',
       whereArgs: [id, id],
+    );
+    SyncService.instance.schedulePush(
+      'leave_requests',
+      idColumn: 'uuid',
+      idValue: id,
     );
   }
 

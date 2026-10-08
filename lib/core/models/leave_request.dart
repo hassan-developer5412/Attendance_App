@@ -152,6 +152,24 @@ class LeaveRequest {
     };
   }
 
+  /// Supabase replication payload: canonical uuid as `id`, JSON-native types,
+  /// and no local-only bookkeeping (`sync_status`, `is_synced`).
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': id,
+      'requester_name': requesterName,
+      'leave_type': leaveType,
+      'start_date': startDate.toIso8601String(),
+      'end_date': endDate.toIso8601String(),
+      'reason': reason,
+      'status': status.value,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'is_deleted': isDeleted,
+    };
+  }
+
   LeaveRequest copyWith({
     String? id,
     String? requesterName,

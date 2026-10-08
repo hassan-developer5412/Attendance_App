@@ -1,9 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
+import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/database/database_platform.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
@@ -13,6 +18,24 @@ import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Initialize Supabase when configured. Any failure (bad URL, no network,
+  // missing key) is swallowed so the app keeps running fully offline with
+  // SQLite as the single source of truth.
+  try {
+    if (SupabaseConfig.isConfigured) {
+      await Supabase.initialize(
+        url: SupabaseConfig.supabaseUrl,
+        publishableKey: SupabaseConfig.supabaseAnonKey,
+      );
+      SupabaseConfig.isInitialized = true;
+    }
+  } catch (e, s) {
+    SupabaseConfig.isInitialized = false;
+    debugPrint('Supabase initialization failed; continuing offline: $e');
+    debugPrintStack(stackTrace: s);
+  }
+
   runApp(const AttendanceBootstrap());
 }
 
@@ -53,6 +76,17 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
 
     final leaveStore = LeaveStore();
     await leaveStore.loadAll();
+
+    // Kick off background Supabase sync (no-op unless Supabase is configured
+    // and initialized). Failures never block app startup.
+    try {
+      if (SupabaseConfig.isReady) {
+        unawaited(SyncService.instance.start());
+      }
+    } catch (e, s) {
+      debugPrint('Failed to start background sync: $e');
+      debugPrintStack(stackTrace: s);
+    }
 
     return AttendanceApp(
       authStore: authStore,

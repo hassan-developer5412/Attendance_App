@@ -127,6 +127,29 @@ class SchoolClass {
     };
   }
 
+  /// Supabase replication payload.
+  ///
+  /// Mirrors the local row with JSON-native types: canonical uuid as `id`,
+  /// `local_id` preserving the legacy integer key for FK joins, boolean
+  /// flags, and **no** local-only bookkeeping (`sync_status`, `is_synced`).
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': uuid,
+      'local_id': id,
+      'name': name,
+      'section': section,
+      'room': room,
+      'class_name': className,
+      'current_year': currentYear,
+      'department_id': departmentId,
+      'academic_session_id': academicSessionId,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'is_deleted': isDeleted,
+    };
+  }
+
   SchoolClass copyWith({
     int? id,
     String? uuid,
@@ -274,6 +297,29 @@ class Teacher {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
+      'is_deleted': isDeleted,
+    };
+  }
+
+  /// Supabase replication payload (see [SchoolClass.toSupabaseJson]).
+  ///
+  /// The teacher's local `password` column is **never** included: credentials
+  /// stay on-device and in Supabase Auth only.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': uuid,
+      'local_id': id,
+      'name': name,
+      'subject': subject,
+      'email': email,
+      'username': username,
+      'class_id': classId,
+      'is_active': isActive,
+      'employee_code': employeeCode ?? 'FAC-$id',
+      'designation': designation,
+      'department_id': departmentId,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
       'is_deleted': isDeleted,
     };
   }
@@ -438,6 +484,30 @@ class Student {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
+      'is_deleted': isDeleted,
+    };
+  }
+
+  /// Supabase replication payload (see [SchoolClass.toSupabaseJson]).
+  ///
+  /// Legacy alias columns (`roll_no`, `full_name`) are omitted — the
+  /// canonical fields above are the source of truth.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': uuid,
+      'local_id': id,
+      'name': name,
+      'roll_number': rollNumber,
+      'class_id': classId,
+      'is_active': isActive,
+      'registration_no': registrationNo ?? 'REG-$rollNumber',
+      'father_name': fatherName,
+      'department_id': departmentId,
+      'academic_session_id': academicSessionId,
+      'current_year': currentYear,
+      'status': status,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
       'is_deleted': isDeleted,
     };
   }
@@ -607,6 +677,27 @@ class Subject {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
+      'is_deleted': isDeleted,
+    };
+  }
+
+  /// Supabase replication payload (see [SchoolClass.toSupabaseJson]).
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': uuid,
+      'local_id': id,
+      'name': name,
+      'code': code,
+      'teacher_name': teacherName,
+      'class_id': classId,
+      'department_id': departmentId,
+      'academic_session_id': academicSessionId,
+      'year': year,
+      'subject_type': subjectType.code,
+      'contact_hours': contactHours,
+      'teacher_id': teacherId,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
       'is_deleted': isDeleted,
     };
   }

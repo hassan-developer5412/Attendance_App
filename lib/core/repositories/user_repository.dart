@@ -1,5 +1,6 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/user.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 
 class UserRepository {
   UserRepository({DatabaseHelper? dbHelper})
@@ -51,6 +52,9 @@ class UserRepository {
       where: 'uuid = ? OR CAST(id AS TEXT) = ?',
       whereArgs: [id, id],
     );
+    // If a legacy integer id was passed the uuid lookup below misses, but the
+    // row is still marked PENDING and the background flush picks it up.
+    SyncService.instance.schedulePush('users', idColumn: 'uuid', idValue: id);
   }
 
   Future<void> softDelete(String id) async {
@@ -66,5 +70,6 @@ class UserRepository {
       where: 'uuid = ? OR CAST(id AS TEXT) = ?',
       whereArgs: [id, id],
     );
+    SyncService.instance.schedulePush('users', idColumn: 'uuid', idValue: id);
   }
 }

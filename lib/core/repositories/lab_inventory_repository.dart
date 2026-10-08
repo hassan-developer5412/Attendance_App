@@ -1,6 +1,7 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/lab_inventory.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 
 class LabInventoryRepository {
   LabInventoryRepository({DatabaseHelper? dbHelper})
@@ -55,6 +56,11 @@ class LabInventoryRepository {
   Future<LabInventory> insert(LabInventory item) async {
     final db = await _dbHelper.database;
     await db.insert('lab_inventory', item.toMap());
+    SyncService.instance.schedulePush(
+      'lab_inventory',
+      idColumn: 'id',
+      idValue: item.id,
+    );
     return item;
   }
 
@@ -67,6 +73,11 @@ class LabInventoryRepository {
       updated.toMap(),
       where: 'id = ?',
       whereArgs: [item.id],
+    );
+    SyncService.instance.schedulePush(
+      'lab_inventory',
+      idColumn: 'id',
+      idValue: item.id,
     );
   }
 
@@ -82,6 +93,11 @@ class LabInventoryRepository {
       },
       where: 'id = ?',
       whereArgs: [id],
+    );
+    SyncService.instance.schedulePush(
+      'lab_inventory',
+      idColumn: 'id',
+      idValue: id,
     );
   }
 

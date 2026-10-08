@@ -1,6 +1,7 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/date_utils.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
@@ -86,6 +87,11 @@ class AttendanceRepository {
         'sync_status': 'PENDING',
         'is_deleted': 0,
       });
+      SyncService.instance.schedulePush(
+        'attendance_sessions',
+        idColumn: 'id',
+        idValue: sessionId,
+      );
     }
     return sessionId;
   }
@@ -139,6 +145,11 @@ class AttendanceRepository {
         where: 'id = ?',
         whereArgs: [existing.first['id']],
       );
+      SyncService.instance.schedulePush(
+        'attendance_records',
+        idColumn: 'uuid',
+        idValue: existing.first['uuid'],
+      );
     } else {
       // Reuse the session's date so records keep a consistent date key.
       final sessionRow = await db.query(
@@ -152,8 +163,9 @@ class AttendanceRepository {
           ? (sessionRow.first['session_date'] as String? ??
               AppDateUtils.dateKey(DateTime.now()))
           : AppDateUtils.dateKey(DateTime.now());
+      final recordUuid = UuidUtils.generate();
       await db.insert('attendance_records', {
-        'uuid': UuidUtils.generate(),
+        'uuid': recordUuid,
         'session_id': sessionId,
         'student_id': studentId,
         'date': recordDate,
@@ -165,6 +177,11 @@ class AttendanceRepository {
         'sync_status': 'PENDING',
         'is_deleted': 0,
       });
+      SyncService.instance.schedulePush(
+        'attendance_records',
+        idColumn: 'uuid',
+        idValue: recordUuid,
+      );
     }
   }
 
@@ -215,6 +232,11 @@ class AttendanceRepository {
         where: 'id = ?',
         whereArgs: [existing.first['id']],
       );
+      SyncService.instance.schedulePush(
+        'attendance_records',
+        idColumn: 'uuid',
+        idValue: existing.first['uuid'],
+      );
     } else {
       final defaultSessionId = UuidUtils.deterministic(
         'attendance_sessions',
@@ -240,10 +262,16 @@ class AttendanceRepository {
           'sync_status': 'PENDING',
           'is_deleted': 0,
         });
+        SyncService.instance.schedulePush(
+          'attendance_sessions',
+          idColumn: 'id',
+          idValue: defaultSessionId,
+        );
       }
 
+      final recordUuid = UuidUtils.generate();
       await db.insert('attendance_records', {
-        'uuid': UuidUtils.generate(),
+        'uuid': recordUuid,
         'session_id': defaultSessionId,
         'student_id': studentId,
         'date': dateStr,
@@ -255,6 +283,11 @@ class AttendanceRepository {
         'sync_status': 'PENDING',
         'is_deleted': 0,
       });
+      SyncService.instance.schedulePush(
+        'attendance_records',
+        idColumn: 'uuid',
+        idValue: recordUuid,
+      );
     }
   }
 

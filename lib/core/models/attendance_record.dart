@@ -120,6 +120,28 @@ class AttendanceRecord {
     };
   }
 
+  /// Supabase replication payload: canonical uuid as `id`, JSON-native types,
+  /// uppercase canonical status (PRESENT/ABSENT/LATE/LEAVE), and no
+  /// local-only bookkeeping (`sync_status`, `is_synced`).
+  ///
+  /// JOIN-only display fields (`student_name`, `student_roll_number`,
+  /// `student_class_id`) are omitted — they are derived, not stored.
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': id,
+      'session_id': sessionId,
+      'student_id': studentId,
+      'date': AppDateUtils.dateKey(date),
+      'status': status.serverValue,
+      'check_in_time': checkInTime?.toIso8601String(),
+      'check_out_time': checkOutTime?.toIso8601String(),
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'is_deleted': isDeleted,
+    };
+  }
+
   AttendanceRecord copyWith({
     String? id,
     String? sessionId,

@@ -22,7 +22,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -36,7 +38,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -52,7 +56,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -70,7 +76,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -92,6 +100,8 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE SET NULL
       )
     ''');
@@ -116,6 +126,8 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE CASCADE
       )
     ''');
@@ -138,6 +150,8 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE CASCADE
       )
     ''');
@@ -157,7 +171,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -175,6 +191,8 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
         UNIQUE (session_id, student_id)
       )
@@ -193,7 +211,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
@@ -209,7 +229,9 @@ class FreshDatabaseCreator {
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
-        is_deleted INTEGER NOT NULL DEFAULT 0
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 

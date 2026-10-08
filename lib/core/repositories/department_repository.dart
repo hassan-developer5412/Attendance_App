@@ -1,5 +1,6 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/department.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 
 class DepartmentRepository {
   DepartmentRepository({DatabaseHelper? dbHelper})
@@ -55,6 +56,11 @@ class DepartmentRepository {
   Future<Department> insert(Department department) async {
     final db = await _dbHelper.database;
     await db.insert('departments', department.toMap());
+    SyncService.instance.schedulePush(
+      'departments',
+      idColumn: 'id',
+      idValue: department.id,
+    );
     return department;
   }
 
@@ -68,6 +74,11 @@ class DepartmentRepository {
       updated.toMap(),
       where: 'id = ?',
       whereArgs: [department.id],
+    );
+    SyncService.instance.schedulePush(
+      'departments',
+      idColumn: 'id',
+      idValue: department.id,
     );
   }
 
@@ -83,6 +94,7 @@ class DepartmentRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    SyncService.instance.schedulePush('departments', idColumn: 'id', idValue: id);
   }
 
   Future<void> restore(String id) async {
@@ -97,6 +109,7 @@ class DepartmentRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    SyncService.instance.schedulePush('departments', idColumn: 'id', idValue: id);
   }
 
   Future<List<Department>> getPendingSync() async {

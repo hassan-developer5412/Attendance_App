@@ -1,5 +1,6 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 class ClassRepository {
@@ -95,6 +96,7 @@ class ClassRepository {
       'is_deleted': 0,
     };
     final id = await db.insert('classes', rowMap);
+    SyncService.instance.schedulePush('classes', idColumn: 'id', idValue: id);
     return SchoolClass(
       id: id,
       uuid: uuid,
@@ -126,6 +128,11 @@ class ClassRepository {
       },
       where: 'id = ?',
       whereArgs: [schoolClass.id],
+    );
+    SyncService.instance.schedulePush(
+      'classes',
+      idColumn: 'id',
+      idValue: schoolClass.id,
     );
   }
 
@@ -180,6 +187,9 @@ class ClassRepository {
         whereArgs: [id],
       );
     });
+    // Cascaded teachers/students/subjects rows are marked PENDING above and
+    // are picked up by the background flush; push the class row itself now.
+    SyncService.instance.schedulePush('classes', idColumn: 'id', idValue: id);
   }
 
   Future<List<SchoolClass>> getPendingSync() async {

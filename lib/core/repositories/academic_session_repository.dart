@@ -1,5 +1,6 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/academic_session.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 
 /// Repository for academic sessions (e.g. `2025-26`, `2026-27`).
 ///
@@ -52,6 +53,11 @@ class AcademicSessionRepository {
     if (session.isCurrent) {
       await _clearCurrentExcept(session.id);
     }
+    SyncService.instance.schedulePush(
+      'academic_sessions',
+      idColumn: 'id',
+      idValue: session.id,
+    );
     return session;
   }
 
@@ -67,6 +73,11 @@ class AcademicSessionRepository {
     if (session.isCurrent) {
       await _clearCurrentExcept(session.id);
     }
+    SyncService.instance.schedulePush(
+      'academic_sessions',
+      idColumn: 'id',
+      idValue: session.id,
+    );
   }
 
   /// Marks [id] as the current session and clears the flag on all others.
@@ -82,6 +93,13 @@ class AcademicSessionRepository {
       {'is_current': 1, 'updated_at': now, 'sync_status': 'PENDING'},
       where: 'id = ?',
       whereArgs: [id],
+    );
+    // The demoted sessions are marked PENDING for the background flush;
+    // push the newly-current session immediately.
+    SyncService.instance.schedulePush(
+      'academic_sessions',
+      idColumn: 'id',
+      idValue: id,
     );
   }
 
@@ -99,6 +117,11 @@ class AcademicSessionRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    SyncService.instance.schedulePush(
+      'academic_sessions',
+      idColumn: 'id',
+      idValue: id,
+    );
   }
 
   Future<void> restore(String id) async {
@@ -112,6 +135,11 @@ class AcademicSessionRepository {
       },
       where: 'id = ?',
       whereArgs: [id],
+    );
+    SyncService.instance.schedulePush(
+      'academic_sessions',
+      idColumn: 'id',
+      idValue: id,
     );
   }
 

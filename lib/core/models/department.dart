@@ -73,6 +73,22 @@ class Department {
     };
   }
 
+  /// Supabase replication payload: mirrors the local row with JSON-native
+  /// types and excludes local-only bookkeeping (`sync_status`, `is_synced`).
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
+  Map<String, dynamic> toSupabaseJson() {
+    return {
+      'id': id,
+      'name': name,
+      'code': code,
+      'description': description,
+      'is_active': isActive,
+      'created_at': createdAt.toIso8601String(),
+      'updated_at': updatedAt.toIso8601String(),
+      'is_deleted': isDeleted,
+    };
+  }
+
   Department copyWith({
     String? id,
     String? name,

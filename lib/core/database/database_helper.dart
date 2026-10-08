@@ -5,6 +5,7 @@ import 'package:attendance_app/core/database/database_platform.dart';
 import 'package:attendance_app/core/database/migrations/fresh_database_creator.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v3.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v4.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v5.dart';
 
 /// Singleton helper that manages the SQLite database lifecycle.
 ///
@@ -62,6 +63,10 @@ class DatabaseHelper {
 
     if (oldVersion < 4) {
       await SchemaMigrationV4.execute(db);
+    }
+
+    if (oldVersion < 5) {
+      await SchemaMigrationV5.execute(db);
     }
   }
 

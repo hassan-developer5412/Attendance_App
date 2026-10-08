@@ -1,5 +1,6 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_session.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 
 class AttendanceSessionRepository {
   AttendanceSessionRepository({DatabaseHelper? dbHelper})
@@ -48,6 +49,11 @@ class AttendanceSessionRepository {
   Future<AttendanceSession> insert(AttendanceSession session) async {
     final db = await _dbHelper.database;
     await db.insert('attendance_sessions', session.toMap());
+    SyncService.instance.schedulePush(
+      'attendance_sessions',
+      idColumn: 'id',
+      idValue: session.id,
+    );
     return session;
   }
 
@@ -60,6 +66,11 @@ class AttendanceSessionRepository {
       updated.toMap(),
       where: 'id = ?',
       whereArgs: [session.id],
+    );
+    SyncService.instance.schedulePush(
+      'attendance_sessions',
+      idColumn: 'id',
+      idValue: session.id,
     );
   }
 
@@ -90,6 +101,11 @@ class AttendanceSessionRepository {
         whereArgs: [id],
       );
     });
+    SyncService.instance.schedulePush(
+      'attendance_sessions',
+      idColumn: 'id',
+      idValue: id,
+    );
   }
 
   Future<List<AttendanceSession>> getPendingSync() async {

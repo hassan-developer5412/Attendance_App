@@ -1,6 +1,7 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 class SubjectRepository {
@@ -98,6 +99,7 @@ class SubjectRepository {
       'is_deleted': 0,
     };
     final id = await db.insert('subjects', rowMap);
+    SyncService.instance.schedulePush('subjects', idColumn: 'id', idValue: id);
     return Subject(
       id: id,
       uuid: uuid,
@@ -136,6 +138,11 @@ class SubjectRepository {
       where: 'id = ?',
       whereArgs: [subject.id],
     );
+    SyncService.instance.schedulePush(
+      'subjects',
+      idColumn: 'id',
+      idValue: subject.id,
+    );
   }
 
   Future<void> softDelete(int id) async {
@@ -151,6 +158,7 @@ class SubjectRepository {
       where: 'id = ?',
       whereArgs: [id],
     );
+    SyncService.instance.schedulePush('subjects', idColumn: 'id', idValue: id);
   }
 
   Future<List<Subject>> getPendingSync() async {
