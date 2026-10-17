@@ -6,6 +6,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 
@@ -83,6 +84,7 @@ class _SettingsContentState extends State<SettingsContent> {
     final colorScheme = theme.colorScheme;
     final authStore = context.watch<AuthStore>();
     final instituteStore = context.watch<InstituteStore>();
+    final themeNotifier = context.watch<ThemeNotifier>();
     final user = authStore.currentUser;
     final displayName = user?.displayName ?? 'User';
     final email = user?.email ?? '';
@@ -348,6 +350,74 @@ class _SettingsContentState extends State<SettingsContent> {
             ),
             const SizedBox(height: 24),
 
+            // Theme
+            Text(
+              'Theme',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Card(
+              elevation: 0,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: colorScheme.outlineVariant),
+              ),
+              child: Column(
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.phone_android_rounded),
+                    title: const Text('Device Theme'),
+                    subtitle: const Text('Follow system theme'),
+                    trailing: Radio<ThemeMode>(
+                      value: ThemeMode.system,
+                      groupValue: themeNotifier.themeMode,
+                      onChanged: (value) {
+                        if (value != null) {
+                          themeNotifier.setThemeMode(value);
+                        }
+                      },
+                    ),
+                    onTap: () =>
+                        themeNotifier.setThemeMode(ThemeMode.system),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.light_mode_rounded),
+                    title: const Text('Light'),
+                    subtitle: const Text('Always use light theme'),
+                    trailing: Radio<ThemeMode>(
+                      value: ThemeMode.light,
+                      groupValue: themeNotifier.themeMode,
+                      onChanged: (value) {
+                        if (value != null) {
+                          themeNotifier.setThemeMode(value);
+                        }
+                      },
+                    ),
+                    onTap: () =>
+                        themeNotifier.setThemeMode(ThemeMode.light),
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.dark_mode_rounded),
+                    title: const Text('Dark'),
+                    subtitle: const Text('Always use dark theme'),
+                    trailing: Radio<ThemeMode>(
+                      value: ThemeMode.dark,
+                      groupValue: themeNotifier.themeMode,
+                      onChanged: (value) {
+                        if (value != null) {
+                          themeNotifier.setThemeMode(value);
+                        }
+                      },
+                    ),
+                    onTap: () => themeNotifier.setThemeMode(ThemeMode.dark),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 24),
+
             // About
             Text(
               'About System',
@@ -451,8 +521,8 @@ class _EditProfileDialogState extends State<_EditProfileDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Edit Profile'),
-      content: SizedBox(
-        width: 380,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
         child: Form(
           key: _formKey,
           child: Column(

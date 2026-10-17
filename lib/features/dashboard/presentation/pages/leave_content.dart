@@ -361,8 +361,8 @@ class _ApplyLeaveDialogState extends State<_ApplyLeaveDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Apply Leave'),
-      content: SizedBox(
-        width: 420,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(

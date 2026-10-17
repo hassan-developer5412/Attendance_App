@@ -6,6 +6,7 @@ import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 import 'package:attendance_app/main.dart';
 
@@ -19,6 +20,7 @@ void main() {
         instituteStore: InstituteStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
@@ -48,6 +50,7 @@ void main() {
         instituteStore: InstituteStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);

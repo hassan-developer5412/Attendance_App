@@ -14,6 +14,7 @@ import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
 import 'package:attendance_app/core/theme/app_theme.dart';
+import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 
 Future<void> main() async {
@@ -77,6 +78,9 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
     final leaveStore = LeaveStore();
     await leaveStore.loadAll();
 
+    // Initialize theme notifier (loads persisted preference, defaults to system).
+    final themeNotifier = ThemeNotifier();
+
     // Kick off background Supabase sync (no-op unless Supabase is configured
     // and initialized). Failures never block app startup.
     try {
@@ -93,6 +97,7 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
       instituteStore: instituteStore,
       attendanceStore: attendanceStore,
       leaveStore: leaveStore,
+      themeNotifier: themeNotifier,
     );
   }
 
@@ -206,12 +211,14 @@ class AttendanceApp extends StatelessWidget {
     required this.instituteStore,
     required this.attendanceStore,
     required this.leaveStore,
+    required this.themeNotifier,
   });
 
   final AuthStore authStore;
   final InstituteStore instituteStore;
   final AttendanceStore attendanceStore;
   final LeaveStore leaveStore;
+  final ThemeNotifier themeNotifier;
 
   @override
   Widget build(BuildContext context) {
@@ -221,14 +228,17 @@ class AttendanceApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: instituteStore),
         ChangeNotifierProvider.value(value: attendanceStore),
         ChangeNotifierProvider.value(value: leaveStore),
+        ChangeNotifierProvider.value(value: themeNotifier),
       ],
-      child: MaterialApp(
-        title: AppConstants.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light,
-        darkTheme: AppTheme.dark,
-        themeMode: ThemeMode.system,
-        home: const LoginScreen(),
+      child: Consumer<ThemeNotifier>(
+        builder: (context, themeNotifier, _) => MaterialApp(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light,
+          darkTheme: AppTheme.dark,
+          themeMode: themeNotifier.themeMode,
+          home: const LoginScreen(),
+        ),
       ),
     );
   }

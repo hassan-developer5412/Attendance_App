@@ -230,8 +230,8 @@ class _AddClassDialogState extends State<AddClassDialog> {
 
     return AlertDialog(
       title: const Text('Add class'),
-      content: SizedBox(
-        width: 460,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -509,8 +509,8 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
 
     return AlertDialog(
       title: const Text('Add teacher'),
-      content: SizedBox(
-        width: 480,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -821,8 +821,8 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
 
     return AlertDialog(
       title: const Text('Edit teacher'),
-      content: SizedBox(
-        width: 480,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -1109,8 +1109,8 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Add student'),
-      content: SizedBox(
-        width: 440,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(
@@ -1398,8 +1398,8 @@ class _AddAcademicSessionDialogState extends State<AddAcademicSessionDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Add Academic Session'),
-      content: SizedBox(
-        width: 420,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
         child: Form(
           key: _formKey,
           child: Column(
