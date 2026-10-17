@@ -1,7 +1,19 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
+bool _looksLikeInt(String s) => RegExp(r'^\d+$').hasMatch(s);
+
+String? _resolveId(dynamic raw, String namespace) {
+  if (raw == null) return null;
+  final s = raw.toString().trim();
+  if (s.isEmpty || s == '0' || s == 'null') return null;
+  if (_looksLikeInt(s)) return UuidUtils.deterministic(namespace, s);
+  return s;
+}
+
 /// Attendance session representing a lecture, lab, or class gathering.
+///
+/// `classId` and `subjectId` are String UUIDs in v6 (was INTEGER in v4/v5).
 class AttendanceSession {
   AttendanceSession({
     String? id,
@@ -28,9 +40,15 @@ class AttendanceSession {
   final String facultyId;
   final String sessionDate; // YYYY-MM-DD
   final String academicSessionId;
-  final int? classId;
+
+  /// UUID of the class this session belongs to (nullable).
+  final String? classId;
+
   final String year;
-  final int? subjectId;
+
+  /// UUID of the subject this session covers (nullable).
+  final String? subjectId;
+
   final String remarks;
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -45,17 +63,9 @@ class AttendanceSession {
       facultyId: (map['faculty_id'] as String?) ?? '',
       sessionDate: (map['session_date'] as String?) ?? '',
       academicSessionId: (map['academic_session_id'] as String?) ?? '',
-      classId: map['class_id'] is int
-          ? map['class_id'] as int
-          : (map['class_id'] != null
-              ? int.tryParse(map['class_id'].toString())
-              : null),
+      classId: _resolveId(map['class_id'], 'classes'),
       year: (map['year'] as String?) ?? '',
-      subjectId: map['subject_id'] is int
-          ? map['subject_id'] as int
-          : (map['subject_id'] != null
-              ? int.tryParse(map['subject_id'].toString())
-              : null),
+      subjectId: _resolveId(map['subject_id'], 'subjects'),
       remarks: (map['remarks'] as String?) ?? '',
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
@@ -113,10 +123,10 @@ class AttendanceSession {
     return {
       'id': id,
       'subject_code': subjectCode,
-      'department_id': departmentId,
-      'faculty_id': facultyId,
+      'department_id': departmentId.isEmpty ? null : departmentId,
+      'faculty_id': facultyId.isEmpty ? null : facultyId,
       'session_date': sessionDate,
-      'academic_session_id': academicSessionId,
+      'academic_session_id': academicSessionId.isEmpty ? null : academicSessionId,
       'class_id': classId,
       'year': year,
       'subject_id': subjectId,
@@ -134,9 +144,9 @@ class AttendanceSession {
     String? facultyId,
     String? sessionDate,
     String? academicSessionId,
-    int? classId,
+    String? classId,
     String? year,
-    int? subjectId,
+    String? subjectId,
     String? remarks,
     DateTime? createdAt,
     DateTime? updatedAt,

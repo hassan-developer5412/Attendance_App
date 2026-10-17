@@ -8,13 +8,13 @@ class UserRepository {
 
   final DatabaseHelper _dbHelper;
 
-  /// Looks a user up by canonical UUID or legacy integer id.
+  /// Looks a user up by UUID primary key.
   Future<User?> getById(String id) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'users',
-      where: '(uuid = ? OR CAST(id AS TEXT) = ?) AND is_deleted = 0',
-      whereArgs: [id, id],
+      where: 'id = ? AND is_deleted = 0',
+      whereArgs: [id],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -33,7 +33,7 @@ class UserRepository {
     return User.fromMap(rows.first);
   }
 
-  /// Updates the profile of the user identified by canonical UUID or legacy id.
+  /// Updates the profile of the user identified by UUID.
   Future<void> updateProfile({
     required String id,
     required String displayName,
@@ -49,12 +49,10 @@ class UserRepository {
         'updated_at': now,
         'sync_status': 'PENDING',
       },
-      where: 'uuid = ? OR CAST(id AS TEXT) = ?',
-      whereArgs: [id, id],
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    // If a legacy integer id was passed the uuid lookup below misses, but the
-    // row is still marked PENDING and the background flush picks it up.
-    SyncService.instance.schedulePush('users', idColumn: 'uuid', idValue: id);
+    SyncService.instance.schedulePush('users', idColumn: 'id', idValue: id);
   }
 
   Future<void> softDelete(String id) async {
@@ -62,14 +60,10 @@ class UserRepository {
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'users',
-      {
-        'is_deleted': 1,
-        'updated_at': now,
-        'sync_status': 'PENDING',
-      },
-      where: 'uuid = ? OR CAST(id AS TEXT) = ?',
-      whereArgs: [id, id],
+      {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
+      where: 'id = ?',
+      whereArgs: [id],
     );
-    SyncService.instance.schedulePush('users', idColumn: 'uuid', idValue: id);
+    SyncService.instance.schedulePush('users', idColumn: 'id', idValue: id);
   }
 }

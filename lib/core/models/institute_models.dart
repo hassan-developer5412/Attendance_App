@@ -4,6 +4,23 @@ import 'package:attendance_app/core/utils/uuid_utils.dart';
 export 'academic_session.dart';
 export 'department.dart';
 
+/// Returns true when the string is a plain integer (legacy INTEGER PK).
+bool _looksLikeInteger(String s) => RegExp(r'^\d+$').hasMatch(s);
+
+/// Resolves a raw map value that may be either an integer (legacy) or a UUID
+/// string (v6) into a canonical UUID string. Returns null when the value is
+/// absent or an empty-string equivalent.
+String? _resolveId(dynamic raw, String namespace) {
+  if (raw == null) return null;
+  final s = raw.toString().trim();
+  if (s.isEmpty || s == '0' || s == 'null') return null;
+  if (_looksLikeInteger(s)) return UuidUtils.deterministic(namespace, s);
+  return s;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SchoolClass
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// A class offering at GILT — a class/program (e.g. `CIT`) running for a
 /// specific academic [currentYear] (e.g. `3rd Year`) inside a department and
@@ -13,8 +30,7 @@ export 'department.dart';
 /// `CIT-3rd Year`. This is **not** a semester.
 class SchoolClass {
   SchoolClass({
-    required this.id,
-    String? uuid,
+    String? id,
     required this.name,
     required this.section,
     required this.room,
@@ -26,14 +42,13 @@ class SchoolClass {
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
-  })  : uuid = uuid ?? UuidUtils.deterministic('classes', id),
+  })  : id = id ?? UuidUtils.generate(),
         className = className ?? name,
         currentYear = currentYear ?? '',
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
-  final int id;
-  final String uuid;
+  final String id;
   String name;
   String section;
   String room;
@@ -52,9 +67,6 @@ class SchoolClass {
   final bool isDeleted;
 
   /// Human-readable class label: `<className>-<currentYear>`.
-  ///
-  /// Legacy records that have not yet been assigned a year fall back to the
-  /// historic `name — section` format so existing data keeps rendering.
   String get displayName {
     final cls = className.trim();
     final year = currentYear.trim();
@@ -66,17 +78,26 @@ class SchoolClass {
   }
 
   /// Creates a [SchoolClass] from a database row map.
+  ///
+  /// Handles both the old schema (integer id + uuid column) and the new v6
+  /// schema (TEXT uuid as id).
   factory SchoolClass.fromMap(Map<String, dynamic> map) {
+    // v6: id is already a UUID string; v5: uuid column holds the canonical id.
+    final rawUuid = map['uuid']?.toString();
+    final rawId = map['id']?.toString();
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !_looksLikeInteger(rawUuid))
+        ? rawUuid
+        : (rawId != null && !_looksLikeInteger(rawId))
+            ? rawId
+            : UuidUtils.deterministic('classes', rawId ?? '0');
+
     return SchoolClass(
-      id: map['id'] is int
-          ? map['id'] as int
-          : int.tryParse(map['id'].toString()) ?? 0,
-      uuid: map['uuid']?.toString(),
+      id: canonicalId,
       name: map['name'] as String,
       section: (map['section'] as String?) ?? '',
       room: (map['room'] as String?) ?? '',
-      departmentId: map['department_id']?.toString(),
-      academicSessionId: map['academic_session_id']?.toString(),
+      departmentId: _resolveId(map['department_id'], 'departments'),
+      academicSessionId: _resolveId(map['academic_session_id'], 'academic_sessions'),
       className: map['class_name']?.toString(),
       currentYear: map['current_year']?.toString(),
       createdAt: map['created_at'] != null
@@ -93,7 +114,7 @@ class SchoolClass {
   /// Converts to a database row map for insert/update.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': uuid,
+      'id': id,
       'name': name,
       'section': section,
       'room': room,
@@ -108,10 +129,10 @@ class SchoolClass {
     };
   }
 
-  /// Server representation for future REST API.
+  /// Server representation for REST API.
   Map<String, dynamic> toServerJson() {
     return {
-      'id': uuid,
+      'id': id,
       'name': name,
       'section': section,
       'room': room,
@@ -128,15 +149,10 @@ class SchoolClass {
   }
 
   /// Supabase replication payload.
-  ///
-  /// Mirrors the local row with JSON-native types: canonical uuid as `id`,
-  /// `local_id` preserving the legacy integer key for FK joins, boolean
-  /// flags, and **no** local-only bookkeeping (`sync_status`, `is_synced`).
   /// `institute_id` is stamped centrally by `SyncService` at send time.
   Map<String, dynamic> toSupabaseJson() {
     return {
-      'id': uuid,
-      'local_id': id,
+      'id': id,
       'name': name,
       'section': section,
       'room': room,
@@ -151,8 +167,7 @@ class SchoolClass {
   }
 
   SchoolClass copyWith({
-    int? id,
-    String? uuid,
+    String? id,
     String? name,
     String? section,
     String? room,
@@ -167,7 +182,6 @@ class SchoolClass {
   }) {
     return SchoolClass(
       id: id ?? this.id,
-      uuid: uuid ?? this.uuid,
       name: name ?? this.name,
       section: section ?? this.section,
       room: room ?? this.room,
@@ -183,11 +197,14 @@ class SchoolClass {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Teacher
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// A teacher on the institute staff (maps to canonical faculty concept).
 class Teacher {
   Teacher({
-    required this.id,
-    String? uuid,
+    String? id,
     required this.name,
     required this.subject,
     this.email = '',
@@ -202,18 +219,19 @@ class Teacher {
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
-  })  : uuid = uuid ?? UuidUtils.deterministic('teachers', id),
+  })  : id = id ?? UuidUtils.generate(),
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
-  final int id;
-  final String uuid;
+  final String id;
   String name;
   String subject;
   String email;
   String username;
   String password;
-  int? classId;
+
+  /// UUID of the class this teacher is primarily assigned to (nullable).
+  String? classId;
   bool isActive;
 
   // Canonical faculty fields
@@ -230,25 +248,27 @@ class Teacher {
 
   /// Creates a [Teacher] from a database row map.
   factory Teacher.fromMap(Map<String, dynamic> map) {
-    final rawId = map['id'];
-    final idInt = rawId is int ? rawId : int.tryParse(rawId.toString()) ?? 0;
+    // v6: id is already a UUID; v5: uuid column holds canonical id.
+    final rawUuid = map['uuid']?.toString();
+    final rawId = map['id']?.toString();
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !_looksLikeInteger(rawUuid))
+        ? rawUuid
+        : (rawId != null && !_looksLikeInteger(rawId))
+            ? rawId
+            : UuidUtils.deterministic('teachers', rawId ?? '0');
+
     return Teacher(
-      id: idInt,
-      uuid: map['uuid']?.toString(),
+      id: canonicalId,
       name: (map['name'] as String?) ?? (map['full_name'] as String?) ?? '',
       subject: (map['subject'] as String?) ?? '',
       email: (map['email'] as String?) ?? '',
       username: (map['username'] as String?) ?? '',
       password: (map['password'] as String?) ?? '',
-      classId: map['class_id'] is int
-          ? map['class_id'] as int
-          : (map['class_id'] != null
-              ? int.tryParse(map['class_id'].toString())
-              : null),
+      classId: _resolveId(map['class_id'], 'classes'),
       isActive: (map['is_active'] as int? ?? 1) == 1,
       employeeCode: map['employee_code'] as String?,
       designation: (map['designation'] as String?) ?? 'Instructor',
-      departmentId: map['department_id']?.toString(),
+      departmentId: _resolveId(map['department_id'], 'departments'),
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -263,7 +283,7 @@ class Teacher {
   /// Converts to a database row map for insert/update.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': uuid,
+      'id': id,
       'name': name,
       'subject': subject,
       'email': email,
@@ -271,7 +291,7 @@ class Teacher {
       'password': password,
       'class_id': classId,
       'is_active': isActive ? 1 : 0,
-      'employee_code': employeeCode ?? 'FAC-$id',
+      'employee_code': employeeCode ?? 'FAC-${id.substring(0, 8)}',
       'designation': designation,
       'department_id': departmentId,
       'created_at': createdAt.toIso8601String(),
@@ -284,15 +304,15 @@ class Teacher {
   /// Canonical faculty representation for REST API.
   Map<String, dynamic> toServerJson() {
     return {
-      'id': uuid,
-      'employee_code': employeeCode ?? 'FAC-$id',
+      'id': id,
+      'employee_code': employeeCode ?? 'FAC-${id.substring(0, 8)}',
       'full_name': name,
       'designation': designation,
       'department_id': departmentId,
       'subject': subject,
       'email': email,
       'username': username,
-      'class_id': classId != null ? UuidUtils.deterministic('classes', classId) : null,
+      'class_id': classId,
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -301,21 +321,19 @@ class Teacher {
     };
   }
 
-  /// Supabase replication payload (see [SchoolClass.toSupabaseJson]).
-  ///
-  /// The teacher's local `password` column is **never** included: credentials
-  /// stay on-device and in Supabase Auth only.
+  /// Supabase replication payload.
+  /// The local `password` column is **never** included.
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
   Map<String, dynamic> toSupabaseJson() {
     return {
-      'id': uuid,
-      'local_id': id,
+      'id': id,
       'name': name,
       'subject': subject,
       'email': email,
       'username': username,
       'class_id': classId,
       'is_active': isActive,
-      'employee_code': employeeCode ?? 'FAC-$id',
+      'employee_code': employeeCode ?? 'FAC-${id.substring(0, 8)}',
       'designation': designation,
       'department_id': departmentId,
       'created_at': createdAt.toIso8601String(),
@@ -325,14 +343,13 @@ class Teacher {
   }
 
   Teacher copyWith({
-    int? id,
-    String? uuid,
+    String? id,
     String? name,
     String? subject,
     String? email,
     String? username,
     String? password,
-    int? classId,
+    String? classId,
     bool? isActive,
     String? employeeCode,
     String? designation,
@@ -344,7 +361,6 @@ class Teacher {
   }) {
     return Teacher(
       id: id ?? this.id,
-      uuid: uuid ?? this.uuid,
       name: name ?? this.name,
       subject: subject ?? this.subject,
       email: email ?? this.email,
@@ -363,11 +379,14 @@ class Teacher {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Student
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// A student enrolled in a class or department at GILT.
 class Student {
   Student({
-    required this.id,
-    String? uuid,
+    String? id,
     required this.name,
     required this.rollNumber,
     required this.classId,
@@ -382,16 +401,18 @@ class Student {
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
-  })  : uuid = uuid ?? UuidUtils.deterministic('students', id),
+  })  : id = id ?? UuidUtils.generate(),
         currentYear = currentYear ?? AcademicYears.defaultValue,
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
-  final int id;
-  final String uuid;
+  final String id;
+
+  /// UUID of the class this student belongs to.
+  String classId;
+
   String name;
   String rollNumber;
-  int classId;
   bool isActive;
 
   // Canonical GILT student fields
@@ -400,7 +421,7 @@ class Student {
   String? departmentId;
   String? academicSessionId;
 
-  /// The student's current academic year, e.g. `3rd Year` (never a semester).
+  /// The student's current academic year, e.g. `3rd Year`.
   String currentYear;
   String status;
 
@@ -413,24 +434,27 @@ class Student {
 
   /// Creates a [Student] from a database row map.
   factory Student.fromMap(Map<String, dynamic> map) {
-    final rawId = map['id'];
-    final idInt = rawId is int ? rawId : int.tryParse(rawId.toString()) ?? 0;
-    final rawClassId = map['class_id'];
-    final classIdInt = rawClassId is int
-        ? rawClassId
-        : (rawClassId != null ? int.tryParse(rawClassId.toString()) ?? 0 : 0);
+    final rawUuid = map['uuid']?.toString();
+    final rawId = map['id']?.toString();
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !_looksLikeInteger(rawUuid))
+        ? rawUuid
+        : (rawId != null && !_looksLikeInteger(rawId))
+            ? rawId
+            : UuidUtils.deterministic('students', rawId ?? '0');
+
+    // class_id may be integer (v5) or UUID (v6).
+    final classId = _resolveId(map['class_id'], 'classes') ?? '';
 
     return Student(
-      id: idInt,
-      uuid: map['uuid']?.toString(),
+      id: canonicalId,
       name: (map['name'] as String?) ?? (map['full_name'] as String?) ?? '',
       rollNumber: (map['roll_number'] as String?) ?? (map['roll_no'] as String?) ?? '',
-      classId: classIdInt,
+      classId: classId,
       isActive: (map['is_active'] as int? ?? 1) == 1,
       registrationNo: (map['registration_no'] as String?),
       fatherName: (map['father_name'] as String?) ?? '',
-      departmentId: map['department_id']?.toString(),
-      academicSessionId: map['academic_session_id']?.toString(),
+      departmentId: _resolveId(map['department_id'], 'departments'),
+      academicSessionId: _resolveId(map['academic_session_id'], 'academic_sessions'),
       currentYear: AcademicYears.normalise(map['current_year'] as String?),
       status: (map['status'] as String?) ?? 'ACTIVE',
       createdAt: map['created_at'] != null
@@ -447,7 +471,7 @@ class Student {
   /// Converts to a database row map for insert/update.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': uuid,
+      'id': id,
       'name': name,
       'roll_number': rollNumber,
       'class_id': classId,
@@ -470,7 +494,7 @@ class Student {
   /// Canonical REST API representation.
   Map<String, dynamic> toServerJson() {
     return {
-      'id': uuid,
+      'id': id,
       'roll_no': rollNumber,
       'registration_no': registrationNo ?? 'REG-$rollNumber',
       'full_name': name,
@@ -479,7 +503,7 @@ class Student {
       'academic_session_id': academicSessionId,
       'current_year': currentYear,
       'status': status,
-      'class_id': UuidUtils.deterministic('classes', classId),
+      'class_id': classId,
       'is_active': isActive,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
@@ -488,17 +512,14 @@ class Student {
     };
   }
 
-  /// Supabase replication payload (see [SchoolClass.toSupabaseJson]).
-  ///
-  /// Legacy alias columns (`roll_no`, `full_name`) are omitted — the
-  /// canonical fields above are the source of truth.
+  /// Supabase replication payload.
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
   Map<String, dynamic> toSupabaseJson() {
     return {
-      'id': uuid,
-      'local_id': id,
+      'id': id,
       'name': name,
       'roll_number': rollNumber,
-      'class_id': classId,
+      'class_id': classId.isEmpty ? null : classId,
       'is_active': isActive,
       'registration_no': registrationNo ?? 'REG-$rollNumber',
       'father_name': fatherName,
@@ -513,11 +534,10 @@ class Student {
   }
 
   Student copyWith({
-    int? id,
-    String? uuid,
+    String? id,
     String? name,
     String? rollNumber,
-    int? classId,
+    String? classId,
     bool? isActive,
     String? registrationNo,
     String? fatherName,
@@ -532,7 +552,6 @@ class Student {
   }) {
     return Student(
       id: id ?? this.id,
-      uuid: uuid ?? this.uuid,
       name: name ?? this.name,
       rollNumber: rollNumber ?? this.rollNumber,
       classId: classId ?? this.classId,
@@ -551,11 +570,14 @@ class Student {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Subject
+// ─────────────────────────────────────────────────────────────────────────────
+
 /// A subject taught in a class for a specific academic year.
 class Subject {
   Subject({
-    required this.id,
-    String? uuid,
+    String? id,
     required this.name,
     required this.code,
     required this.teacherName,
@@ -570,20 +592,22 @@ class Subject {
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
-  })  : uuid = uuid ?? UuidUtils.deterministic('subjects', id),
+  })  : id = id ?? UuidUtils.generate(),
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
-  final int id;
-  final String uuid;
+  final String id;
   String name;
   String code;
   String teacherName;
-  int classId;
+
+  /// UUID of the class this subject belongs to.
+  String classId;
+
   String? departmentId;
   String? academicSessionId;
 
-  /// Academic year this subject belongs to, e.g. `3rd Year` (never a semester).
+  /// Academic year this subject belongs to, e.g. `3rd Year`.
   String year;
 
   /// Theory / practical classification.
@@ -594,8 +618,8 @@ class Subject {
 
   double get contactHoursPerWeek => contactHours;
 
-  /// Integer id of the teacher assigned to this subject (nullable).
-  int? teacherId;
+  /// UUID of the teacher assigned to this subject (nullable).
+  String? teacherId;
 
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -604,30 +628,26 @@ class Subject {
 
   /// Creates a [Subject] from a database row map.
   factory Subject.fromMap(Map<String, dynamic> map) {
-    final rawId = map['id'];
-    final idInt = rawId is int ? rawId : int.tryParse(rawId.toString()) ?? 0;
-    final rawClassId = map['class_id'];
-    final classIdInt = rawClassId is int
-        ? rawClassId
-        : (rawClassId != null ? int.tryParse(rawClassId.toString()) ?? 0 : 0);
+    final rawUuid = map['uuid']?.toString();
+    final rawId = map['id']?.toString();
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !_looksLikeInteger(rawUuid))
+        ? rawUuid
+        : (rawId != null && !_looksLikeInteger(rawId))
+            ? rawId
+            : UuidUtils.deterministic('subjects', rawId ?? '0');
 
     return Subject(
-      id: idInt,
-      uuid: map['uuid']?.toString(),
+      id: canonicalId,
       name: (map['name'] as String?) ?? '',
       code: (map['code'] as String?) ?? '',
       teacherName: (map['teacher_name'] as String?) ?? '',
-      classId: classIdInt,
-      departmentId: map['department_id']?.toString(),
-      academicSessionId: map['academic_session_id']?.toString(),
+      classId: _resolveId(map['class_id'], 'classes') ?? '',
+      departmentId: _resolveId(map['department_id'], 'departments'),
+      academicSessionId: _resolveId(map['academic_session_id'], 'academic_sessions'),
       year: (map['year'] as String?) ?? '',
       subjectType: SubjectType.fromString(map['subject_type'] as String?),
       contactHours: (map['contact_hours'] as num?)?.toDouble() ?? 0,
-      teacherId: map['teacher_id'] is int
-          ? map['teacher_id'] as int
-          : (map['teacher_id'] != null
-              ? int.tryParse(map['teacher_id'].toString())
-              : null),
+      teacherId: _resolveId(map['teacher_id'], 'teachers'),
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -642,7 +662,7 @@ class Subject {
   /// Converts to a database row map for insert/update.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': uuid,
+      'id': id,
       'name': name,
       'code': code,
       'teacher_name': teacherName,
@@ -660,14 +680,14 @@ class Subject {
     };
   }
 
-  /// REST API JSON format
+  /// REST API JSON format.
   Map<String, dynamic> toServerJson() {
     return {
-      'id': uuid,
+      'id': id,
       'name': name,
       'code': code,
       'teacher_name': teacherName,
-      'class_id': UuidUtils.deterministic('classes', classId),
+      'class_id': classId,
       'department_id': departmentId,
       'academic_session_id': academicSessionId,
       'year': year,
@@ -681,15 +701,15 @@ class Subject {
     };
   }
 
-  /// Supabase replication payload (see [SchoolClass.toSupabaseJson]).
+  /// Supabase replication payload.
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
   Map<String, dynamic> toSupabaseJson() {
     return {
-      'id': uuid,
-      'local_id': id,
+      'id': id,
       'name': name,
       'code': code,
       'teacher_name': teacherName,
-      'class_id': classId,
+      'class_id': classId.isEmpty ? null : classId,
       'department_id': departmentId,
       'academic_session_id': academicSessionId,
       'year': year,
@@ -703,18 +723,17 @@ class Subject {
   }
 
   Subject copyWith({
-    int? id,
-    String? uuid,
+    String? id,
     String? name,
     String? code,
     String? teacherName,
-    int? classId,
+    String? classId,
     String? departmentId,
     String? academicSessionId,
     String? year,
     SubjectType? subjectType,
     double? contactHours,
-    int? teacherId,
+    String? teacherId,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
@@ -722,7 +741,6 @@ class Subject {
   }) {
     return Subject(
       id: id ?? this.id,
-      uuid: uuid ?? this.uuid,
       name: name ?? this.name,
       code: code ?? this.code,
       teacherName: teacherName ?? this.teacherName,
@@ -740,6 +758,10 @@ class Subject {
     );
   }
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Shared helpers
+// ─────────────────────────────────────────────────────────────────────────────
 
 String _initialsFrom(String name) {
   final parts = name.trim().split(RegExp(r'\s+'));

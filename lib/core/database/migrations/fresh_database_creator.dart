@@ -5,6 +5,11 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
+/// Creates the full v6 database schema from scratch and seeds the default
+/// admin user plus canonical departments and academic sessions.
+///
+/// All tables use `TEXT PRIMARY KEY` holding a client-generated v4 UUID.
+/// There are no more `INTEGER PRIMARY KEY AUTOINCREMENT` columns.
 class FreshDatabaseCreator {
   FreshDatabaseCreator._();
 
@@ -12,6 +17,7 @@ class FreshDatabaseCreator {
     final now = DateTime.now().toUtc().toIso8601String();
     final batch = db.batch();
 
+    // ── departments ──────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE departments (
         id TEXT PRIMARY KEY,
@@ -23,11 +29,12 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── academic_sessions ────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE academic_sessions (
         id TEXT PRIMARY KEY,
@@ -39,15 +46,16 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── users ────────────────────────────────────────────────────────────────
+    // id is now TEXT UUID (no more INTEGER AUTOINCREMENT + uuid column).
     batch.execute('''
       CREATE TABLE users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         username TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL,
         display_name TEXT NOT NULL,
@@ -57,15 +65,15 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── classes ──────────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE classes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         section TEXT NOT NULL,
         room TEXT NOT NULL,
@@ -77,21 +85,21 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── teachers ─────────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE teachers (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         subject TEXT NOT NULL,
         email TEXT NOT NULL DEFAULT '',
         username TEXT NOT NULL DEFAULT '',
         password TEXT NOT NULL DEFAULT '',
-        class_id INTEGER,
+        class_id TEXT,
         is_active INTEGER NOT NULL DEFAULT 1,
         employee_code TEXT,
         designation TEXT NOT NULL DEFAULT 'Instructor',
@@ -100,19 +108,19 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE SET NULL
       )
     ''');
 
+    // ── students ─────────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE students (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         roll_number TEXT NOT NULL,
-        class_id INTEGER NOT NULL,
+        class_id TEXT NOT NULL,
         is_active INTEGER NOT NULL DEFAULT 1,
         roll_no TEXT,
         full_name TEXT,
@@ -126,36 +134,37 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE CASCADE
       )
     ''');
 
+    // ── subjects ─────────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE subjects (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         code TEXT NOT NULL,
         teacher_name TEXT NOT NULL,
-        class_id INTEGER NOT NULL,
+        class_id TEXT NOT NULL,
         department_id TEXT,
         academic_session_id TEXT,
         year TEXT NOT NULL DEFAULT '',
         subject_type TEXT NOT NULL DEFAULT 'THEORY',
         contact_hours REAL NOT NULL DEFAULT 0,
-        teacher_id INTEGER,
+        teacher_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE CASCADE
       )
     ''');
 
+    // ── attendance_sessions ───────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE attendance_sessions (
         id TEXT PRIMARY KEY,
@@ -164,25 +173,25 @@ class FreshDatabaseCreator {
         faculty_id TEXT NOT NULL DEFAULT '',
         session_date TEXT NOT NULL,
         academic_session_id TEXT NOT NULL DEFAULT '',
-        class_id INTEGER,
+        class_id TEXT,
         year TEXT NOT NULL DEFAULT '',
-        subject_id INTEGER,
+        subject_id TEXT,
         remarks TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── attendance_records ───────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE attendance_records (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         session_id TEXT,
-        student_id INTEGER NOT NULL,
+        student_id TEXT NOT NULL,
         date TEXT NOT NULL,
         status TEXT NOT NULL,
         check_in_time TEXT,
@@ -191,17 +200,17 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY (student_id) REFERENCES students (id) ON DELETE CASCADE,
         UNIQUE (session_id, student_id)
       )
     ''');
 
+    // ── leave_requests ───────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE leave_requests (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        uuid TEXT NOT NULL UNIQUE,
+        id TEXT PRIMARY KEY,
         requester_name TEXT NOT NULL,
         leave_type TEXT NOT NULL,
         start_date TEXT NOT NULL,
@@ -212,11 +221,12 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── lab_inventory ────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE lab_inventory (
         id TEXT PRIMARY KEY,
@@ -230,11 +240,12 @@ class FreshDatabaseCreator {
         updated_at TEXT NOT NULL,
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
-        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0
       )
     ''');
 
+    // ── sync_queue ───────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE sync_queue (
         id TEXT PRIMARY KEY,
@@ -250,13 +261,14 @@ class FreshDatabaseCreator {
 
     await batch.commit(noResult: true);
 
+    // ── Seed default admin user ──────────────────────────────────────────────
     final passwordHash = sha256
         .convert(utf8.encode(AppConstants.defaultAdminPassword))
         .toString();
 
-    final adminUuid = UuidUtils.deterministic('users', 'admin');
+    final adminId = UuidUtils.deterministic('users', 'admin');
     await db.insert('users', {
-      'uuid': adminUuid,
+      'id': adminId,
       'username': AppConstants.defaultAdminUsername,
       'password_hash': passwordHash,
       'display_name': AppConstants.defaultAdminDisplayName,

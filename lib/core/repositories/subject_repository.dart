@@ -15,12 +15,13 @@ class SubjectRepository {
     final rows = await db.query(
       'subjects',
       where: includeDeleted ? null : 'is_deleted = 0',
-      orderBy: 'id DESC',
+      orderBy: 'name ASC',
     );
     return rows.map(Subject.fromMap).toList();
   }
 
-  Future<Subject?> getById(int id) async {
+  /// Look up a subject by its UUID primary key.
+  Future<Subject?> getById(String id) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'subjects',
@@ -32,7 +33,8 @@ class SubjectRepository {
     return Subject.fromMap(rows.first);
   }
 
-  Future<List<Subject>> getByClassId(int classId) async {
+  /// All subjects in a class (by class UUID).
+  Future<List<Subject>> getByClassId(String classId) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'subjects',
@@ -43,7 +45,7 @@ class SubjectRepository {
     return rows.map(Subject.fromMap).toList();
   }
 
-  Future<List<Subject>> getByClassAndYear(int classId, String year) async {
+  Future<List<Subject>> getByClassAndYear(String classId, String year) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'subjects',
@@ -54,8 +56,8 @@ class SubjectRepository {
     return rows.map(Subject.fromMap).toList();
   }
 
-  /// All subjects assigned to a teacher (by integer teacher id).
-  Future<List<Subject>> getByTeacherId(int teacherId) async {
+  /// All subjects assigned to a teacher (by teacher UUID).
+  Future<List<Subject>> getByTeacherId(String teacherId) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'subjects',
@@ -70,19 +72,19 @@ class SubjectRepository {
     required String name,
     required String code,
     required String teacherName,
-    required int classId,
+    required String classId,
     String? departmentId,
     String? academicSessionId,
     String year = '',
     SubjectType subjectType = SubjectType.theory,
     double contactHours = 0,
-    int? teacherId,
+    String? teacherId,
   }) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
-    final uuid = UuidUtils.generate();
+    final id = UuidUtils.generate();
     final rowMap = {
-      'uuid': uuid,
+      'id': id,
       'name': name.trim(),
       'code': code.trim(),
       'teacher_name': teacherName.trim(),
@@ -98,11 +100,10 @@ class SubjectRepository {
       'sync_status': 'PENDING',
       'is_deleted': 0,
     };
-    final id = await db.insert('subjects', rowMap);
+    await db.insert('subjects', rowMap);
     SyncService.instance.schedulePush('subjects', idColumn: 'id', idValue: id);
     return Subject(
       id: id,
-      uuid: uuid,
       name: name.trim(),
       code: code.trim(),
       teacherName: teacherName.trim(),
@@ -145,16 +146,12 @@ class SubjectRepository {
     );
   }
 
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'subjects',
-      {
-        'is_deleted': 1,
-        'updated_at': now,
-        'sync_status': 'PENDING',
-      },
+      {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
       where: 'id = ?',
       whereArgs: [id],
     );

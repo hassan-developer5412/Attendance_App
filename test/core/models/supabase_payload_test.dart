@@ -19,11 +19,9 @@ const localOnlyFields = <String>{
 
 void main() {
   group('toSupabaseJson payload contract', () {
-    test('SchoolClass uses uuid as id, keeps local_id, and is JSON-native',
-        () {
+    test('SchoolClass uses UUID string id and is JSON-native', () {
       final schoolClass = SchoolClass(
-        id: 7,
-        uuid: 'class-uuid-7',
+        id: 'class-uuid-7',
         name: 'CIT',
         section: 'A',
         room: 'R-101',
@@ -34,7 +32,6 @@ void main() {
       final json = schoolClass.toSupabaseJson();
 
       expect(json['id'], 'class-uuid-7');
-      expect(json['local_id'], 7);
       expect(json['is_deleted'], isA<bool>());
       expect(json.keys.where(localOnlyFields.contains), isEmpty);
       expect(json.containsKey('display_name'), isFalse,
@@ -43,8 +40,7 @@ void main() {
 
     test('Teacher never leaks the local password column', () {
       final teacher = Teacher(
-        id: 3,
-        uuid: 'teacher-uuid-3',
+        id: 'teacher-uuid-3',
         name: 'Ms. Khan',
         subject: 'Maths',
         password: 'plain-text-secret',
@@ -56,23 +52,21 @@ void main() {
       expect(json.containsKey('password'), isFalse);
       expect(json.keys.where(localOnlyFields.contains), isEmpty);
       expect(json['id'], 'teacher-uuid-3');
-      expect(json['local_id'], 3);
     });
 
-    test('Student keeps integer FK and drops legacy alias columns', () {
+    test('Student uses UUID id and UUID class_id, drops legacy alias columns',
+        () {
       final student = Student(
-        id: 11,
-        uuid: 'student-uuid-11',
+        id: 'student-uuid-11',
         name: 'Ali',
         rollNumber: 'CIT-001',
-        classId: 4,
+        classId: 'class-uuid-4',
       );
 
       final json = student.toSupabaseJson();
 
       expect(json['id'], 'student-uuid-11');
-      expect(json['local_id'], 11);
-      expect(json['class_id'], 4, reason: 'integer FKs stay integers');
+      expect(json['class_id'], 'class-uuid-4');
       expect(json['is_active'], isA<bool>());
       expect(json.keys.where(localOnlyFields.contains), isEmpty);
     });
@@ -121,10 +115,11 @@ void main() {
       expect(json.keys.where(localOnlyFields.contains), isEmpty);
     });
 
-    test('AttendanceRecord uses canonical uppercase status, no JOIN fields',
+    test(
+        'AttendanceRecord uses canonical uppercase status, no JOIN fields, UUID studentId',
         () {
       final record = AttendanceRecord(
-        studentId: 5,
+        studentId: 'student-uuid-5',
         date: DateTime.utc(2026, 1, 15),
         status: AttendanceStatus.present,
         studentName: 'Joined Name',
@@ -134,6 +129,7 @@ void main() {
       final json = record.toSupabaseJson();
 
       expect(json['id'], record.id);
+      expect(json['student_id'], 'student-uuid-5');
       expect(json['status'], 'PRESENT');
       expect(json['date'], '2026-01-15');
       expect(json.containsKey('student_name'), isFalse,

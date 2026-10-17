@@ -5,7 +5,10 @@ import 'package:attendance_app/core/models/attendance_record.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/repositories/attendance_repository.dart';
 
-/// Manages attendance records and subject-based attendance sessions backed by [AttendanceRepository].
+/// Manages attendance records and subject-based attendance sessions backed
+/// by [AttendanceRepository].
+///
+/// All student/class/subject identifiers are now UUID strings (v6 schema).
 class AttendanceStore extends ChangeNotifier {
   AttendanceStore({AttendanceRepository? repository})
       : _repository = repository ?? AttendanceRepository();
@@ -25,20 +28,22 @@ class AttendanceStore extends ChangeNotifier {
   bool _isSessionLoaded = false;
   bool _isPreviouslySaved = false;
   String _sessionRemarks = '';
-  final Map<int, AttendanceStatus> _draftStatuses = {};
+
+  /// Draft statuses keyed by student UUID string.
+  final Map<String, AttendanceStatus> _draftStatuses = {};
 
   String? get currentSessionId => _currentSessionId;
   bool get isSessionLoaded => _isSessionLoaded;
   bool get isPreviouslySaved => _isPreviouslySaved;
   String get sessionRemarks => _sessionRemarks;
-  Map<int, AttendanceStatus> get draftStatuses =>
+  Map<String, AttendanceStatus> get draftStatuses =>
       Map.unmodifiable(_draftStatuses);
 
-  AttendanceStatus getStatus(int studentId) {
+  AttendanceStatus getStatus(String studentId) {
     return _draftStatuses[studentId] ?? AttendanceStatus.present;
   }
 
-  void setStatus(int studentId, AttendanceStatus status) {
+  void setStatus(String studentId, AttendanceStatus status) {
     _draftStatuses[studentId] = status;
     notifyListeners();
   }
@@ -59,9 +64,9 @@ class AttendanceStore extends ChangeNotifier {
   Future<void> loadSubjectAttendance({
     required String departmentId,
     required String academicSessionId,
-    required int classId,
+    required String classId,
     required String year,
-    required int subjectId,
+    required String subjectId,
     required DateTime date,
     required List<Student> students,
     String subjectCode = '',
@@ -105,9 +110,9 @@ class AttendanceStore extends ChangeNotifier {
   Future<void> saveSubjectAttendance({
     required String departmentId,
     required String academicSessionId,
-    required int classId,
+    required String classId,
     required String year,
-    required int subjectId,
+    required String subjectId,
     required DateTime date,
     required List<Student> students,
     String subjectCode = '',
@@ -160,7 +165,7 @@ class AttendanceStore extends ChangeNotifier {
 
   /// Inserts or updates an attendance record (upsert on student_id + date).
   Future<void> markAttendance({
-    required int studentId,
+    required String studentId,
     required DateTime date,
     required AttendanceStatus status,
     DateTime? checkInTime,
@@ -180,20 +185,11 @@ class AttendanceStore extends ChangeNotifier {
   // Dashboard queries
   // ---------------------------------------------------------------------------
 
-  /// Number of students marked late today.
   Future<int> todayLateCount() => _repository.getTodayLateCount();
-
-  /// Real-time today's institute-wide attendance summary.
   Future<Map<String, dynamic>> todayOverview() => _repository.getTodayOverview();
-
-  /// Returns present/absent counts for each weekday of the current week.
   Future<List<Map<String, int>>> weeklyStats() => _repository.getWeeklyStats();
-
-  /// Returns the count of each [AttendanceStatus] for the current month.
   Future<Map<AttendanceStatus, int>> monthlyDistribution() =>
       _repository.getMonthlyDistribution();
-
-  /// Returns the most recent attendance records for the dashboard activity feed.
   Future<List<AttendanceRecord>> recentActivity({int limit = 5}) =>
       _repository.getRecentActivity(limit: limit);
 
@@ -201,29 +197,27 @@ class AttendanceStore extends ChangeNotifier {
   // Reports queries
   // ---------------------------------------------------------------------------
 
-  /// Monthly attendance rate for the last [months] months.
   Future<List<Map<String, dynamic>>> monthlyTrend({int months = 6}) async {
     final trend = await _repository.getMonthlyTrend();
     if (months >= trend.length) return trend;
     return trend.sublist(trend.length - months);
   }
 
-  /// Average attendance rate per class for the current month.
   Future<List<Map<String, dynamic>>> classComparison() =>
       _repository.getClassComparison();
 
-  /// Top students by attendance rate for the current month.
   Future<List<Map<String, dynamic>>> topAttenders({int limit = 5}) =>
       _repository.getTopAttenders(limit: limit);
 
   /// Sessions history for a subject.
-  Future<List<Map<String, dynamic>>> getSubjectSessionHistory(int subjectId) =>
+  Future<List<Map<String, dynamic>>> getSubjectSessionHistory(
+          String subjectId) =>
       _repository.getSubjectSessionHistory(subjectId);
 
   /// Per-student attendance for a subject.
   Future<List<Map<String, dynamic>>> getSubjectAttendanceByStudent({
-    required int subjectId,
-    int? classId,
+    required String subjectId,
+    String? classId,
   }) =>
       _repository.getSubjectAttendanceByStudent(
         subjectId: subjectId,
@@ -233,7 +227,7 @@ class AttendanceStore extends ChangeNotifier {
   /// Summary for all subjects in a session or class.
   Future<List<Map<String, dynamic>>> getSubjectAttendanceSummary({
     String? academicSessionId,
-    int? classId,
+    String? classId,
   }) =>
       _repository.getSubjectAttendanceSummary(
         academicSessionId: academicSessionId,
@@ -242,6 +236,6 @@ class AttendanceStore extends ChangeNotifier {
 
   /// Attendance breakdown across subjects for a student.
   Future<List<Map<String, dynamic>>> getStudentAttendanceBySubject(
-          int studentId) =>
+          String studentId) =>
       _repository.getStudentAttendanceBySubject(studentId);
 }

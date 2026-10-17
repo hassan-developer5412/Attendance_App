@@ -41,11 +41,11 @@ class AddTeacherResult {
   final String email;
   final String username;
   final String password;
-  final List<int> subjectIds;
+  final List<String> subjectIds;
   final String? departmentId;
   final String? employeeCode;
   final String designation;
-  final int? classId;
+  final String? classId;
 }
 
 class EditTeacherResult {
@@ -65,11 +65,11 @@ class EditTeacherResult {
   final String email;
   final String username;
   final String password;
-  final List<int> subjectIds;
+  final List<String> subjectIds;
   final String? departmentId;
   final String? employeeCode;
   final String designation;
-  final int? classId;
+  final String? classId;
 }
 
 class AddStudentResult {
@@ -87,7 +87,7 @@ class AddStudentResult {
 
   final String name;
   final String rollNumber;
-  final int classId;
+  final String classId;
   final String? registrationNo;
   final String fatherName;
   final String? departmentId;
@@ -104,7 +104,7 @@ class PromoteStudentResult {
     this.newDepartmentId,
   });
 
-  final int newClassId;
+  final String newClassId;
   final String newYear;
   final String? newAcademicSessionId;
   final String? newDepartmentId;
@@ -455,8 +455,8 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
   late final TextEditingController _employeeCodeController;
   String _designation = 'Instructor';
   String? _selectedDepartmentId;
-  int? _selectedClassId;
-  final Set<int> _selectedSubjectIds = {};
+  String? _selectedClassId;
+  final Set<String> _selectedSubjectIds = {};
   bool _obscurePassword = true;
 
   @override
@@ -752,7 +752,7 @@ class EditTeacherDialog extends StatefulWidget {
 
   final Teacher teacher;
   final List<Subject> subjects;
-  final Set<int> assignedSubjectIds;
+  final Set<String> assignedSubjectIds;
   final List<Department> departments;
 
   @override
@@ -768,7 +768,7 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
   late final TextEditingController _employeeCodeController;
   late String _designation;
   String? _selectedDepartmentId;
-  late final Set<int> _selectedSubjectIds;
+  late final Set<String> _selectedSubjectIds;
   bool _obscurePassword = true;
 
   @override
@@ -782,7 +782,7 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
         TextEditingController(text: widget.teacher.employeeCode ?? '');
     _designation = widget.teacher.designation;
     _selectedDepartmentId = widget.teacher.departmentId;
-    _selectedSubjectIds = Set<int>.from(widget.assignedSubjectIds);
+    _selectedSubjectIds = Set<String>.from(widget.assignedSubjectIds);
   }
 
   @override
@@ -1063,7 +1063,7 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
   late final TextEditingController _rollController;
   late final TextEditingController _fatherNameController;
   late final TextEditingController _regNoController;
-  late int _classId;
+  late String _classId;
 
   @override
   void initState() {
@@ -1167,7 +1167,7 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<int>(
+                DropdownButtonFormField<String>(
                   key: const Key('studentClassField'),
                   initialValue: _classId,
                   isExpanded: true,
@@ -1230,7 +1230,7 @@ class PromoteStudentDialog extends StatefulWidget {
 }
 
 class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
-  late int _selectedClassId;
+  late String _selectedClassId;
   late String _selectedYear;
   String? _selectedSessionId;
 
@@ -1277,7 +1277,7 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<int>(
+            DropdownButtonFormField<String>(
               initialValue: _selectedClassId,
               decoration: const InputDecoration(
                 labelText: 'Target Class',

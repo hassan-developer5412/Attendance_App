@@ -13,17 +13,18 @@ class LeaveRepository {
     final rows = await db.query(
       'leave_requests',
       where: includeDeleted ? null : 'is_deleted = 0',
-      orderBy: 'id DESC',
+      orderBy: 'created_at DESC',
     );
     return rows.map(LeaveRequest.fromMap).toList();
   }
 
+  /// Look up a leave request by its UUID primary key.
   Future<LeaveRequest?> getById(String id) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'leave_requests',
-      where: '(uuid = ? OR CAST(id AS TEXT) = ?) AND is_deleted = 0',
-      whereArgs: [id, id],
+      where: 'id = ? AND is_deleted = 0',
+      whereArgs: [id],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -34,7 +35,7 @@ class LeaveRepository {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     final rowMap = {
-      'uuid': request.id,
+      'id': request.id,
       'requester_name': request.requesterName.trim(),
       'leave_type': request.leaveType,
       'start_date': request.startDate.toIso8601String(),
@@ -46,12 +47,10 @@ class LeaveRepository {
       'sync_status': 'PENDING',
       'is_deleted': 0,
     };
-    final intId = await db.insert('leave_requests', rowMap);
-    // Keep the canonical UUID as the model id; the legacy auto-increment value is only the physical row key.
-    assert(intId > 0);
+    await db.insert('leave_requests', rowMap);
     SyncService.instance.schedulePush(
       'leave_requests',
-      idColumn: 'uuid',
+      idColumn: 'id',
       idValue: request.id,
     );
     return request;
@@ -67,12 +66,12 @@ class LeaveRepository {
         'updated_at': now,
         'sync_status': 'PENDING',
       },
-      where: 'uuid = ? OR CAST(id AS TEXT) = ?',
-      whereArgs: [id, id],
+      where: 'id = ?',
+      whereArgs: [id],
     );
     SyncService.instance.schedulePush(
       'leave_requests',
-      idColumn: 'uuid',
+      idColumn: 'id',
       idValue: id,
     );
   }
@@ -82,17 +81,13 @@ class LeaveRepository {
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'leave_requests',
-      {
-        'is_deleted': 1,
-        'updated_at': now,
-        'sync_status': 'PENDING',
-      },
-      where: 'uuid = ? OR CAST(id AS TEXT) = ?',
-      whereArgs: [id, id],
+      {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
+      where: 'id = ?',
+      whereArgs: [id],
     );
     SyncService.instance.schedulePush(
       'leave_requests',
-      idColumn: 'uuid',
+      idColumn: 'id',
       idValue: id,
     );
   }

@@ -24,9 +24,9 @@ class _AttendanceContentState extends State<AttendanceContent>
   // Selection Chain State
   String? _selectedDepartmentId;
   String? _selectedSessionId;
-  int? _selectedClassId;
+  String? _selectedClassId;
   String _selectedYear = AcademicYears.firstYear;
-  int? _selectedSubjectId;
+  String? _selectedSubjectId;
   DateTime _selectedDate = DateTime.now();
 
   final TextEditingController _remarksController = TextEditingController();
@@ -34,7 +34,7 @@ class _AttendanceContentState extends State<AttendanceContent>
   bool _isSaving = false;
 
   // History Tab Filter State
-  int? _historySubjectId;
+  String? _historySubjectId;
   bool _isLoadingHistory = false;
   List<Map<String, dynamic>> _historySessions = [];
 
@@ -214,7 +214,7 @@ class _AttendanceContentState extends State<AttendanceContent>
         date: _selectedDate,
         students: students,
         subjectCode: subject?.code ?? '',
-        teacherId: subject?.teacherId?.toString(),
+        teacherId: subject?.teacherId,
         remarks: _remarksController.text.trim(),
       );
 
@@ -242,7 +242,7 @@ class _AttendanceContentState extends State<AttendanceContent>
     }
   }
 
-  Future<void> _loadHistory(int subjectId) async {
+  Future<void> _loadHistory(String subjectId) async {
     setState(() {
       _historySubjectId = subjectId;
       _isLoadingHistory = true;
@@ -268,7 +268,7 @@ class _AttendanceContentState extends State<AttendanceContent>
         _selectedSessionId = session['academicSessionId'] as String;
       }
       if (session['classId'] != null) {
-        _selectedClassId = session['classId'] as int;
+        _selectedClassId = session['classId'] as String;
       }
       if (session['year'] != null && (session['year'] as String).isNotEmpty) {
         _selectedYear = session['year'] as String;
@@ -515,7 +515,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                     children: [
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<int>(
+                        child: DropdownButtonFormField<String>(
                           key: ValueKey('cls_$_selectedClassId'),
                           initialValue: _selectedClassId,
                           isExpanded: true,
@@ -586,7 +586,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                     children: [
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<int>(
+                        child: DropdownButtonFormField<String>(
                           key: ValueKey('sub_$_selectedSubjectId'),
                           initialValue: _selectedSubjectId,
                           isExpanded: true,
@@ -879,7 +879,7 @@ class _AttendanceContentState extends State<AttendanceContent>
   }
 
   Widget _buildStatusToggle(
-    int studentId,
+    String studentId,
     AttendanceStatus currentStatus,
     AttendanceStore attendanceStore,
   ) {
@@ -961,7 +961,7 @@ class _AttendanceContentState extends State<AttendanceContent>
               child: Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<int>(
+                    child: DropdownButtonFormField<String>(
                       key: ValueKey('hist_cls_$_selectedClassId'),
                       initialValue: _selectedClassId,
                       isExpanded: true,
@@ -995,7 +995,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: DropdownButtonFormField<int>(
+                    child: DropdownButtonFormField<String>(
                       key: ValueKey('hist_sub_${_historySubjectId ?? _selectedSubjectId}'),
                       initialValue: _historySubjectId ?? _selectedSubjectId,
                       isExpanded: true,

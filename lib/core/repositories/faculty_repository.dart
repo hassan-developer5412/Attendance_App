@@ -14,29 +14,18 @@ class FacultyRepository {
     final rows = await db.query(
       'teachers',
       where: includeDeleted ? null : 'is_deleted = 0',
-      orderBy: 'id DESC',
+      orderBy: 'name ASC',
     );
     return rows.map(Teacher.fromMap).toList();
   }
 
-  Future<Teacher?> getById(int id) async {
+  /// Look up a teacher by its UUID primary key.
+  Future<Teacher?> getById(String id) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'teachers',
       where: 'id = ? AND is_deleted = 0',
       whereArgs: [id],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    return Teacher.fromMap(rows.first);
-  }
-
-  Future<Teacher?> getByUuid(String uuid) async {
-    final db = await _dbHelper.database;
-    final rows = await db.query(
-      'teachers',
-      where: 'uuid = ? AND is_deleted = 0',
-      whereArgs: [uuid],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -49,17 +38,18 @@ class FacultyRepository {
     String email = '',
     String username = '',
     String password = '',
-    int? classId,
+    String? classId,
     String? employeeCode,
     String designation = 'Instructor',
     String? departmentId,
   }) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
-    final uuid = UuidUtils.generate();
-    final resolvedEmployeeCode = employeeCode ?? 'FAC-${DateTime.now().millisecondsSinceEpoch % 100000}';
+    final id = UuidUtils.generate();
+    final resolvedEmployeeCode =
+        employeeCode ?? 'FAC-${id.substring(0, 8)}';
     final rowMap = {
-      'uuid': uuid,
+      'id': id,
       'name': name.trim(),
       'subject': subject.trim(),
       'email': email.trim(),
@@ -75,11 +65,10 @@ class FacultyRepository {
       'sync_status': 'PENDING',
       'is_deleted': 0,
     };
-    final id = await db.insert('teachers', rowMap);
+    await db.insert('teachers', rowMap);
     SyncService.instance.schedulePush('teachers', idColumn: 'id', idValue: id);
     return Teacher(
       id: id,
-      uuid: uuid,
       name: name.trim(),
       subject: subject.trim(),
       email: email.trim(),
@@ -121,16 +110,12 @@ class FacultyRepository {
     );
   }
 
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'teachers',
-      {
-        'is_deleted': 1,
-        'updated_at': now,
-        'sync_status': 'PENDING',
-      },
+      {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
       where: 'id = ?',
       whereArgs: [id],
     );

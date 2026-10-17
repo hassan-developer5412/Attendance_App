@@ -2,6 +2,9 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 /// A user of the attendance and institute management system.
+///
+/// The `id` field is a client-generated v4 UUID that is used as the primary
+/// key in both local SQLite (`users.id TEXT PRIMARY KEY`) and Supabase.
 class User {
   User({
     String? id,
@@ -28,13 +31,17 @@ class User {
   final bool isDeleted;
 
   /// Creates a [User] from a database row map.
+  ///
+  /// Handles the v5→v6 migration window: if the row still has the old
+  /// `uuid` column the canonical id is taken from there; the new schema
+  /// stores it directly in `id`.
   factory User.fromMap(Map<String, dynamic> map) {
-    // Prefer the canonical UUID; fall back to the legacy integer primary key.
     final rawUuid = map['uuid']?.toString();
     final rawId = map['id']?.toString();
-    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty)
+    // Prefer uuid column when present (v5 rows), fall back to id column (v6).
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !_looksLikeInteger(rawUuid))
         ? rawUuid
-        : (rawId ?? '');
+        : (rawId ?? UuidUtils.generate());
 
     return User(
       id: canonicalId,
@@ -55,12 +62,10 @@ class User {
 
   /// Converts this user to a database row map (excludes password).
   ///
-  /// `id` is intentionally omitted: on the legacy `users` table it is an
-  /// `INTEGER PRIMARY KEY AUTOINCREMENT`, so the canonical UUID is written to the
-  /// dedicated `uuid` column instead.
+  /// In the v6 schema `id` is the TEXT UUID primary key.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': id,
+      'id': id,
       'username': username,
       'display_name': displayName,
       'email': email,
@@ -72,7 +77,7 @@ class User {
     };
   }
 
-  /// Backend-ready representation for future REST API.
+  /// Backend-ready representation for REST API.
   Map<String, dynamic> toServerJson() {
     return {
       'id': id,
@@ -87,12 +92,9 @@ class User {
     };
   }
 
-  /// Supabase replication payload: canonical uuid as `id`, JSON-native types,
+  /// Supabase replication payload: canonical UUID as `id`, JSON-native types,
   /// and no local-only bookkeeping (`sync_status`, `is_synced`).
-  ///
-  /// The local `password_hash` column is **never** included — credentials
-  /// stay on-device and in Supabase Auth only. `institute_id` is stamped
-  /// centrally by `SyncService` at send time.
+  /// `institute_id` is stamped centrally by `SyncService` at send time.
   Map<String, dynamic> toSupabaseJson() {
     return {
       'id': id,
@@ -129,5 +131,7 @@ class User {
       isDeleted: isDeleted ?? this.isDeleted,
     );
   }
-}
 
+  /// Returns true when the string is a plain integer (legacy INTEGER PK).
+  static bool _looksLikeInteger(String s) => RegExp(r'^\d+$').hasMatch(s);
+}

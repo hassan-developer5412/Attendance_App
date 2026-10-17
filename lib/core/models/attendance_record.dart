@@ -2,7 +2,14 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/utils/date_utils.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
+/// Returns true when the string looks like a plain integer (legacy INTEGER PK).
+bool _looksLikeInt(String s) => RegExp(r'^\d+$').hasMatch(s);
+
 /// A single daily attendance record for a student.
+///
+/// `id`, `studentId`, and `studentClassId` are all v4 UUID strings in the v6
+/// schema. The [fromMap] factory transparently converts legacy integer values
+/// to their deterministic UUID equivalents so old rows keep working.
 class AttendanceRecord {
   AttendanceRecord({
     String? id,
@@ -25,7 +32,10 @@ class AttendanceRecord {
 
   final String id;
   final String? sessionId;
-  final int studentId;
+
+  /// UUID of the student (TEXT FK → students.id).
+  final String studentId;
+
   final DateTime date;
   final AttendanceStatus status;
   final DateTime? checkInTime;
@@ -34,7 +44,9 @@ class AttendanceRecord {
   /// Populated from JOIN queries for display purposes.
   final String? studentName;
   final String? studentRollNumber;
-  final int? studentClassId;
+
+  /// UUID of the class the student belongs to (from JOIN).
+  final String? studentClassId;
 
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -42,20 +54,40 @@ class AttendanceRecord {
   final bool isDeleted;
 
   /// Creates an [AttendanceRecord] from a database row map.
+  ///
+  /// Handles both v5 (integer PKs + uuid column) and v6 (TEXT UUID PKs).
   factory AttendanceRecord.fromMap(Map<String, dynamic> map) {
-    // Prefer the canonical UUID; fall back to the legacy integer primary key.
+    // Resolve record id
     final rawUuid = map['uuid']?.toString();
     final rawId = map['id']?.toString();
-    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty)
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !_looksLikeInt(rawUuid))
         ? rawUuid
-        : (rawId ?? '');
+        : (rawId != null && !_looksLikeInt(rawId))
+            ? rawId
+            : UuidUtils.deterministic('attendance_records', rawId ?? '0');
+
+    // Resolve student_id (may be integer in old rows)
+    String studentId;
+    final rawStudentId = map['student_id']?.toString() ?? '0';
+    if (_looksLikeInt(rawStudentId)) {
+      studentId = UuidUtils.deterministic('students', rawStudentId);
+    } else {
+      studentId = rawStudentId;
+    }
+
+    // Resolve class_id from JOIN (display only)
+    String? studentClassId;
+    final rawClassId = map['class_id']?.toString();
+    if (rawClassId != null && rawClassId.isNotEmpty) {
+      studentClassId = _looksLikeInt(rawClassId)
+          ? UuidUtils.deterministic('classes', rawClassId)
+          : rawClassId;
+    }
 
     return AttendanceRecord(
       id: canonicalId,
       sessionId: map['session_id']?.toString(),
-      studentId: map['student_id'] is int
-          ? map['student_id'] as int
-          : int.tryParse(map['student_id'].toString()) ?? 0,
+      studentId: studentId,
       date: AppDateUtils.parseDateKey(map['date'] as String),
       status: AttendanceStatus.fromString(map['status'] as String),
       checkInTime: map['check_in_time'] != null
@@ -66,11 +98,7 @@ class AttendanceRecord {
           : null,
       studentName: map['student_name'] as String?,
       studentRollNumber: map['roll_number'] as String?,
-      studentClassId: map['class_id'] is int
-          ? map['class_id'] as int
-          : (map['class_id'] != null
-              ? int.tryParse(map['class_id'].toString())
-              : null),
+      studentClassId: studentClassId,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -84,12 +112,10 @@ class AttendanceRecord {
 
   /// Converts to a database row map for insert/update.
   ///
-  /// `id` is intentionally omitted: on the legacy `attendance_records` table it
-  /// is an `INTEGER PRIMARY KEY AUTOINCREMENT`, so the canonical UUID is written
-  /// to the dedicated `uuid` column instead.
+  /// In the v6 schema `id` is the TEXT UUID primary key.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': id,
+      'id': id,
       'session_id': sessionId,
       'student_id': studentId,
       'date': AppDateUtils.dateKey(date),
@@ -108,7 +134,7 @@ class AttendanceRecord {
     return {
       'id': id,
       'session_id': sessionId,
-      'student_id': studentId.toString(),
+      'student_id': studentId,
       'date': AppDateUtils.dateKey(date),
       'status': status.serverValue,
       'check_in_time': checkInTime?.toIso8601String(),
@@ -120,12 +146,7 @@ class AttendanceRecord {
     };
   }
 
-  /// Supabase replication payload: canonical uuid as `id`, JSON-native types,
-  /// uppercase canonical status (PRESENT/ABSENT/LATE/LEAVE), and no
-  /// local-only bookkeeping (`sync_status`, `is_synced`).
-  ///
-  /// JOIN-only display fields (`student_name`, `student_roll_number`,
-  /// `student_class_id`) are omitted — they are derived, not stored.
+  /// Supabase replication payload.
   /// `institute_id` is stamped centrally by `SyncService` at send time.
   Map<String, dynamic> toSupabaseJson() {
     return {
@@ -145,14 +166,14 @@ class AttendanceRecord {
   AttendanceRecord copyWith({
     String? id,
     String? sessionId,
-    int? studentId,
+    String? studentId,
     DateTime? date,
     AttendanceStatus? status,
     DateTime? checkInTime,
     DateTime? checkOutTime,
     String? studentName,
     String? studentRollNumber,
-    int? studentClassId,
+    String? studentClassId,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
@@ -176,4 +197,3 @@ class AttendanceRecord {
     );
   }
 }
-

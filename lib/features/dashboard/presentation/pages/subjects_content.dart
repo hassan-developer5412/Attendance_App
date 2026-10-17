@@ -374,7 +374,7 @@ class _AddSubjectResult {
   final String year;
   final SubjectType subjectType;
   final double contactHours;
-  final int? teacherId;
+  final String? teacherId;
 }
 
 class _AddSubjectDialog extends StatefulWidget {

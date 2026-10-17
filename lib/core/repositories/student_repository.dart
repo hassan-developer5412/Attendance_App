@@ -14,12 +14,13 @@ class StudentRepository {
     final rows = await db.query(
       'students',
       where: includeDeleted ? null : 'is_deleted = 0',
-      orderBy: 'id DESC',
+      orderBy: 'name ASC',
     );
     return rows.map(Student.fromMap).toList();
   }
 
-  Future<Student?> getById(int id) async {
+  /// Look up a student by its UUID primary key.
+  Future<Student?> getById(String id) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'students',
@@ -31,19 +32,8 @@ class StudentRepository {
     return Student.fromMap(rows.first);
   }
 
-  Future<Student?> getByUuid(String uuid) async {
-    final db = await _dbHelper.database;
-    final rows = await db.query(
-      'students',
-      where: 'uuid = ? AND is_deleted = 0',
-      whereArgs: [uuid],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    return Student.fromMap(rows.first);
-  }
-
-  Future<List<Student>> getByClassId(int classId) async {
+  /// All students in a class (by class UUID).
+  Future<List<Student>> getByClassId(String classId) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'students',
@@ -54,7 +44,7 @@ class StudentRepository {
     return rows.map(Student.fromMap).toList();
   }
 
-  Future<List<Student>> getByClassAndYear(int classId, String year) async {
+  Future<List<Student>> getByClassAndYear(String classId, String year) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'students',
@@ -68,7 +58,7 @@ class StudentRepository {
   Future<Student> insert({
     required String name,
     required String rollNumber,
-    required int classId,
+    required String classId,
     String? registrationNo,
     String fatherName = '',
     String? departmentId,
@@ -78,9 +68,9 @@ class StudentRepository {
   }) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
-    final uuid = UuidUtils.generate();
+    final id = UuidUtils.generate();
     final rowMap = {
-      'uuid': uuid,
+      'id': id,
       'name': name.trim(),
       'roll_number': rollNumber.trim(),
       'class_id': classId,
@@ -98,11 +88,10 @@ class StudentRepository {
       'sync_status': 'PENDING',
       'is_deleted': 0,
     };
-    final id = await db.insert('students', rowMap);
+    await db.insert('students', rowMap);
     SyncService.instance.schedulePush('students', idColumn: 'id', idValue: id);
     return Student(
       id: id,
-      uuid: uuid,
       name: name.trim(),
       rollNumber: rollNumber.trim(),
       classId: classId,
@@ -146,16 +135,12 @@ class StudentRepository {
     );
   }
 
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'students',
-      {
-        'is_deleted': 1,
-        'updated_at': now,
-        'sync_status': 'PENDING',
-      },
+      {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
       where: 'id = ?',
       whereArgs: [id],
     );

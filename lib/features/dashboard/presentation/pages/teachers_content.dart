@@ -111,7 +111,7 @@ class _TeachersContentState extends State<TeachersContent> {
   }
 
   /// Returns the IDs of subjects currently assigned to a given teacher.
-  Set<int> _assignedSubjectIds(InstituteStore store, Teacher teacher) {
+  Set<String> _assignedSubjectIds(InstituteStore store, Teacher teacher) {
     return store.subjects
         .where((s) => s.teacherId == teacher.id || s.teacherName == teacher.name)
         .map((s) => s.id)

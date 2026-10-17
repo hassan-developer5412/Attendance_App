@@ -16,7 +16,7 @@ class StudentsContent extends StatefulWidget {
 
 class _StudentsContentState extends State<StudentsContent> {
   String _searchQuery = '';
-  int? _filterClassId;
+  String? _filterClassId;
   late final TextEditingController _searchController;
 
   @override
@@ -232,7 +232,7 @@ class _StudentsContentState extends State<StudentsContent> {
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 2,
-                  child: DropdownButtonFormField<int?>(
+                  child: DropdownButtonFormField<String?>(
                     initialValue: _filterClassId,
                     isExpanded: true,
                     decoration: const InputDecoration(
@@ -241,12 +241,12 @@ class _StudentsContentState extends State<StudentsContent> {
                       isDense: true,
                     ),
                     items: [
-                      const DropdownMenuItem<int?>(
+                      const DropdownMenuItem<String?>(
                         value: null,
                         child: Text('All Classes'),
                       ),
                       ...store.classes.map(
-                        (c) => DropdownMenuItem<int?>(
+                        (c) => DropdownMenuItem<String?>(
                           value: c.id,
                           child: Text(
                             c.displayName,

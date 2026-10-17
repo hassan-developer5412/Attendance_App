@@ -11,8 +11,10 @@ import 'package:attendance_app/core/repositories/faculty_repository.dart';
 import 'package:attendance_app/core/repositories/student_repository.dart';
 import 'package:attendance_app/core/repositories/subject_repository.dart';
 
-/// Directory of departments, sessions, classes, teachers, students, and subjects
-/// backed by SQLite repositories.
+/// Directory of departments, sessions, classes, teachers, students, and
+/// subjects backed by SQLite repositories.
+///
+/// All primary and foreign key identifiers are UUID strings (v6 schema).
 class InstituteStore extends ChangeNotifier {
   InstituteStore({
     ClassRepository? classRepository,
@@ -139,20 +141,17 @@ class InstituteStore extends ChangeNotifier {
     return _academicSessions.where((s) => s.id == id).firstOrNull;
   }
 
-  SchoolClass? classById(int? id) {
-    if (id == null) return null;
-    for (final item in _classes) {
-      if (item.id == id) return item;
-    }
-    return null;
+  SchoolClass? classById(String? id) {
+    if (id == null || id.isEmpty) return null;
+    return _classes.where((c) => c.id == id).firstOrNull;
   }
 
-  String classLabel(int? classId) {
+  String classLabel(String? classId) {
     return classById(classId)?.displayName ?? 'Unassigned';
   }
 
-  Subject? subjectById(int? id) {
-    if (id == null) return null;
+  Subject? subjectById(String? id) {
+    if (id == null || id.isEmpty) return null;
     return _subjects.where((s) => s.id == id).firstOrNull;
   }
 
@@ -180,22 +179,25 @@ class InstituteStore extends ChangeNotifier {
     }).toList();
   }
 
-  List<Subject> subjectsForClass(int classId) {
+  List<Subject> subjectsForClass(String classId) {
     return _subjects.where((s) => s.classId == classId).toList();
   }
 
-  List<Subject> subjectsForClassAndYear(int classId, String year) {
+  List<Subject> subjectsForClassAndYear(String classId, String year) {
     final normYear = AcademicYears.normalise(year);
     return _subjects
-        .where((s) => s.classId == classId && (s.year.isEmpty || AcademicYears.normalise(s.year) == normYear))
+        .where((s) =>
+            s.classId == classId &&
+            (s.year.isEmpty ||
+                AcademicYears.normalise(s.year) == normYear))
         .toList();
   }
 
-  List<Subject> subjectsForTeacher(int teacherId) {
+  List<Subject> subjectsForTeacher(String teacherId) {
     return _subjects.where((s) => s.teacherId == teacherId).toList();
   }
 
-  List<SchoolClass> classesForTeacher(int teacherId) {
+  List<SchoolClass> classesForTeacher(String teacherId) {
     final classIds = _subjects
         .where((s) => s.teacherId == teacherId)
         .map((s) => s.classId)
@@ -203,14 +205,17 @@ class InstituteStore extends ChangeNotifier {
     return _classes.where((c) => classIds.contains(c.id)).toList();
   }
 
-  List<Student> studentsForClass(int classId) {
+  List<Student> studentsForClass(String classId) {
     return _students.where((s) => s.classId == classId).toList();
   }
 
-  List<Student> studentsForClassAndYear(int classId, String year) {
+  List<Student> studentsForClassAndYear(String classId, String year) {
     final normYear = AcademicYears.normalise(year);
     return _students
-        .where((s) => s.classId == classId && (s.currentYear.isEmpty || AcademicYears.normalise(s.currentYear) == normYear))
+        .where((s) =>
+            s.classId == classId &&
+            (s.currentYear.isEmpty ||
+                AcademicYears.normalise(s.currentYear) == normYear))
         .toList();
   }
 
@@ -283,7 +288,7 @@ class InstituteStore extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteClass(int id) async {
+  Future<void> deleteClass(String id) async {
     await _classRepository.softDelete(id);
     _classes.removeWhere((item) => item.id == id);
     for (final teacher in _teachers) {
@@ -319,11 +324,11 @@ class InstituteStore extends ChangeNotifier {
     required String email,
     required String username,
     required String password,
-    required List<int> subjectIds,
+    required List<String> subjectIds,
     String? departmentId,
     String? employeeCode,
     String designation = 'Instructor',
-    int? classId,
+    String? classId,
   }) async {
     final selected =
         _subjects.where((s) => subjectIds.contains(s.id)).toList();
@@ -354,11 +359,12 @@ class InstituteStore extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> deleteTeacher(int id) async {
+  Future<void> deleteTeacher(String id) async {
     final teacher = _teachers.where((t) => t.id == id).firstOrNull;
     if (teacher != null) {
       for (final subject in _subjects) {
-        if (subject.teacherId == id || subject.teacherName == teacher.name) {
+        if (subject.teacherId == id ||
+            subject.teacherName == teacher.name) {
           subject.teacherId = null;
           subject.teacherName = 'Unassigned';
           await _subjectRepository.update(subject);
@@ -372,21 +378,22 @@ class InstituteStore extends ChangeNotifier {
   }
 
   Future<void> updateTeacher({
-    required int id,
+    required String id,
     required String name,
     required String email,
     required String username,
     required String password,
-    required List<int> subjectIds,
+    required List<String> subjectIds,
     String? departmentId,
     String? employeeCode,
     String designation = 'Instructor',
-    int? classId,
+    String? classId,
   }) async {
     final teacher = _teachers.where((t) => t.id == id).firstOrNull;
     if (teacher != null) {
       for (final subject in _subjects) {
-        if (subject.teacherId == id || subject.teacherName == teacher.name) {
+        if (subject.teacherId == id ||
+            subject.teacherName == teacher.name) {
           subject.teacherId = null;
           subject.teacherName = 'Unassigned';
           await _subjectRepository.update(subject);
@@ -429,7 +436,7 @@ class InstituteStore extends ChangeNotifier {
   Future<void> addStudent({
     required String name,
     required String rollNumber,
-    required int classId,
+    required String classId,
     String? registrationNo,
     String fatherName = '',
     String? departmentId,
@@ -462,8 +469,8 @@ class InstituteStore extends ChangeNotifier {
   }
 
   Future<void> promoteOrMoveStudent({
-    required int studentId,
-    required int newClassId,
+    required String studentId,
+    required String newClassId,
     required String newYear,
     String? newAcademicSessionId,
     String? newDepartmentId,
@@ -480,7 +487,7 @@ class InstituteStore extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteStudent(int id) async {
+  Future<void> deleteStudent(String id) async {
     await _studentRepository.softDelete(id);
     _students.removeWhere((item) => item.id == id);
     notifyListeners();
@@ -494,13 +501,13 @@ class InstituteStore extends ChangeNotifier {
     required String name,
     required String code,
     required String teacherName,
-    required int classId,
+    required String classId,
     String? departmentId,
     String? academicSessionId,
     String year = '',
     SubjectType subjectType = SubjectType.theory,
     double contactHours = 0,
-    int? teacherId,
+    String? teacherId,
   }) async {
     final subject = await _subjectRepository.insert(
       name: name,
@@ -528,7 +535,7 @@ class InstituteStore extends ChangeNotifier {
     }
   }
 
-  Future<void> deleteSubject(int id) async {
+  Future<void> deleteSubject(String id) async {
     await _subjectRepository.softDelete(id);
     _subjects.removeWhere((item) => item.id == id);
     notifyListeners();

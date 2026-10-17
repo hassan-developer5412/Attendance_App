@@ -30,20 +30,20 @@ class _ReportsContentState extends State<ReportsContent>
   bool _isLoadingAnalytics = true;
 
   // View 1: Student Report
-  int? _selectedStudentId;
+  String? _selectedStudentId;
   List<Map<String, dynamic>> _studentSubjectRecords = [];
   bool _isLoadingStudentReport = false;
 
   // View 2: Subject Report
   String? _subjectReportDeptId;
-  int? _subjectReportClassId;
+  String? _subjectReportClassId;
   String _subjectReportYear = AcademicYears.firstYear;
-  int? _subjectReportSubjectId;
+  String? _subjectReportSubjectId;
   List<Map<String, dynamic>> _subjectSessionHistory = [];
   bool _isLoadingSubjectReport = false;
 
   // View 3: Class Report
-  int? _classReportClassId;
+  String? _classReportClassId;
   List<Map<String, dynamic>> _classSubjectSummary = [];
   bool _isLoadingClassReport = false;
 
@@ -103,7 +103,7 @@ class _ReportsContentState extends State<ReportsContent>
     });
   }
 
-  Future<void> _loadStudentReport(int studentId) async {
+  Future<void> _loadStudentReport(String studentId) async {
     setState(() => _isLoadingStudentReport = true);
     final attendanceStore = context.read<AttendanceStore>();
     final data = await attendanceStore.getStudentAttendanceBySubject(studentId);
@@ -114,7 +114,7 @@ class _ReportsContentState extends State<ReportsContent>
     });
   }
 
-  Future<void> _loadSubjectReport(int subjectId) async {
+  Future<void> _loadSubjectReport(String subjectId) async {
     setState(() => _isLoadingSubjectReport = true);
     final attendanceStore = context.read<AttendanceStore>();
     final history = await attendanceStore.getSubjectSessionHistory(subjectId);
@@ -125,7 +125,7 @@ class _ReportsContentState extends State<ReportsContent>
     });
   }
 
-  Future<void> _loadClassReport(int classId) async {
+  Future<void> _loadClassReport(String classId) async {
     setState(() => _isLoadingClassReport = true);
     final attendanceStore = context.read<AttendanceStore>();
     final summary =
@@ -245,7 +245,7 @@ class _ReportsContentState extends State<ReportsContent>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DropdownButtonFormField<int>(
+                  DropdownButtonFormField<String>(
                     key: ValueKey('rep_stu_${selectedStudent.id}'),
                     initialValue: selectedStudent.id,
                     isExpanded: true,
@@ -542,7 +542,7 @@ class _ReportsContentState extends State<ReportsContent>
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: DropdownButtonFormField<int>(
+                        child: DropdownButtonFormField<String>(
                           key: ValueKey('rep_cls_$_subjectReportClassId'),
                           initialValue: _subjectReportClassId,
                           isExpanded: true,
@@ -608,7 +608,7 @@ class _ReportsContentState extends State<ReportsContent>
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<int>(
+                        child: DropdownButtonFormField<String>(
                           key: ValueKey('rep_sub_$_subjectReportSubjectId'),
                           initialValue: _subjectReportSubjectId,
                           isExpanded: true,
@@ -796,7 +796,7 @@ class _ReportsContentState extends State<ReportsContent>
             ),
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: DropdownButtonFormField<int>(
+              child: DropdownButtonFormField<String>(
                 key: ValueKey('rep_cls_pick_${selectedClass.id}'),
                 initialValue: selectedClass.id,
                 isExpanded: true,

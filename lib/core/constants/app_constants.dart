@@ -24,7 +24,8 @@ class AppConstants {
   /// 3 — UUID / sync metadata + departments, sessions, inventory, sync queue
   /// 4 — academic sessions, class year structure, subject-based attendance
   /// 5 — Supabase replication columns (institute_id, is_synced)
-  static const int databaseVersion = 5;
+  /// 6 — Full UUID migration: INTEGER PKs → TEXT UUID PKs; FK columns updated
+  static const int databaseVersion = 6;
 
   // Default seeded admin credentials (used on first launch only)
   static const String defaultAdminUsername = 'admin';

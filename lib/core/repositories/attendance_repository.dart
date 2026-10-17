@@ -17,7 +17,7 @@ class AttendanceRepository {
 
     final rows = await db.rawQuery('''
       SELECT
-        a.id, a.uuid, a.session_id, a.student_id, a.date, a.status,
+        a.id, a.session_id, a.student_id, a.date, a.status,
         a.check_in_time, a.check_out_time,
         a.created_at, a.updated_at, a.sync_status, a.is_deleted,
         s.name AS student_name, s.roll_number, s.class_id
@@ -31,10 +31,12 @@ class AttendanceRepository {
   }
 
   /// Deterministic session id for an academic context + date.
+  ///
+  /// All parameters are now UUID strings.
   static String sessionIdFor({
     required String academicSessionId,
-    required int classId,
-    required int subjectId,
+    required String classId,
+    required String subjectId,
     required DateTime date,
   }) {
     return UuidUtils.deterministic(
@@ -47,9 +49,9 @@ class AttendanceRepository {
   Future<String> ensureSession({
     required String departmentId,
     required String academicSessionId,
-    required int classId,
+    required String classId,
     required String year,
-    required int subjectId,
+    required String subjectId,
     required DateTime date,
     String subjectCode = '',
     String? teacherId,
@@ -101,7 +103,7 @@ class AttendanceRepository {
     final db = await _dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT
-        a.id, a.uuid, a.session_id, a.student_id, a.date, a.status,
+        a.id, a.session_id, a.student_id, a.date, a.status,
         a.check_in_time, a.check_out_time,
         a.created_at, a.updated_at, a.sync_status, a.is_deleted,
         s.name AS student_name, s.roll_number, s.class_id
@@ -114,9 +116,11 @@ class AttendanceRepository {
   }
 
   /// Inserts or updates a single student's status within a session.
+  ///
+  /// [studentId] is a UUID string (TEXT PK in v6).
   Future<void> upsertAttendanceForSession({
     required String sessionId,
-    required int studentId,
+    required String studentId,
     required AttendanceStatus status,
     DateTime? checkInTime,
     DateTime? checkOutTime,
@@ -132,6 +136,7 @@ class AttendanceRepository {
     );
 
     if (existing.isNotEmpty) {
+      final existingId = existing.first['id'] as String;
       await db.update(
         'attendance_records',
         {
@@ -143,12 +148,12 @@ class AttendanceRepository {
           'is_deleted': 0,
         },
         where: 'id = ?',
-        whereArgs: [existing.first['id']],
+        whereArgs: [existingId],
       );
       SyncService.instance.schedulePush(
         'attendance_records',
-        idColumn: 'uuid',
-        idValue: existing.first['uuid'],
+        idColumn: 'id',
+        idValue: existingId,
       );
     } else {
       // Reuse the session's date so records keep a consistent date key.
@@ -163,9 +168,9 @@ class AttendanceRepository {
           ? (sessionRow.first['session_date'] as String? ??
               AppDateUtils.dateKey(DateTime.now()))
           : AppDateUtils.dateKey(DateTime.now());
-      final recordUuid = UuidUtils.generate();
+      final recordId = UuidUtils.generate();
       await db.insert('attendance_records', {
-        'uuid': recordUuid,
+        'id': recordId,
         'session_id': sessionId,
         'student_id': studentId,
         'date': recordDate,
@@ -179,18 +184,15 @@ class AttendanceRepository {
       });
       SyncService.instance.schedulePush(
         'attendance_records',
-        idColumn: 'uuid',
-        idValue: recordUuid,
+        idColumn: 'id',
+        idValue: recordId,
       );
     }
   }
 
   /// Backward-compatible upsert by student and date.
-  /// If [sessionId] is provided, delegates to [upsertAttendanceForSession].
-  /// Otherwise, updates any existing record for that student on that date,
-  /// or creates/finds a daily session to attach the record to.
   Future<void> upsertAttendance({
-    required int studentId,
+    required String studentId,
     required DateTime date,
     required AttendanceStatus status,
     DateTime? checkInTime,
@@ -219,6 +221,7 @@ class AttendanceRepository {
     );
 
     if (existing.isNotEmpty) {
+      final existingId = existing.first['id'] as String;
       await db.update(
         'attendance_records',
         {
@@ -230,12 +233,12 @@ class AttendanceRepository {
           'is_deleted': 0,
         },
         where: 'id = ?',
-        whereArgs: [existing.first['id']],
+        whereArgs: [existingId],
       );
       SyncService.instance.schedulePush(
         'attendance_records',
-        idColumn: 'uuid',
-        idValue: existing.first['uuid'],
+        idColumn: 'id',
+        idValue: existingId,
       );
     } else {
       final defaultSessionId = UuidUtils.deterministic(
@@ -269,9 +272,9 @@ class AttendanceRepository {
         );
       }
 
-      final recordUuid = UuidUtils.generate();
+      final recordId = UuidUtils.generate();
       await db.insert('attendance_records', {
-        'uuid': recordUuid,
+        'id': recordId,
         'session_id': defaultSessionId,
         'student_id': studentId,
         'date': dateStr,
@@ -285,21 +288,20 @@ class AttendanceRepository {
       });
       SyncService.instance.schedulePush(
         'attendance_records',
-        idColumn: 'uuid',
-        idValue: recordUuid,
+        idColumn: 'id',
+        idValue: recordId,
       );
     }
   }
 
-  /// Convenience wrapper that marks attendance directly from the academic
-  /// context (department → session → class → year → subject → date).
+  /// Convenience wrapper — all IDs are now UUID strings.
   Future<void> upsertAttendanceForContext({
     required String departmentId,
     required String academicSessionId,
-    required int classId,
+    required String classId,
     required String year,
-    required int subjectId,
-    required int studentId,
+    required String subjectId,
+    required String studentId,
     required DateTime date,
     required AttendanceStatus status,
     String subjectCode = '',
@@ -393,14 +395,14 @@ class AttendanceRepository {
     final db = await _dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT
-        a.id, a.uuid, a.session_id, a.student_id, a.date, a.status,
+        a.id, a.session_id, a.student_id, a.date, a.status,
         a.check_in_time, a.check_out_time,
         a.created_at, a.updated_at, a.sync_status, a.is_deleted,
         s.name AS student_name, s.roll_number, s.class_id
       FROM attendance_records a
       INNER JOIN students s ON s.id = a.student_id
       WHERE a.is_deleted = 0 AND s.is_deleted = 0
-      ORDER BY a.id DESC
+      ORDER BY a.created_at DESC
       LIMIT ?
     ''', [limit]);
 
@@ -525,12 +527,9 @@ class AttendanceRepository {
   // ---------------------------------------------------------------------------
 
   /// Per-student attendance for a subject (present/late over total sessions).
-  ///
-  /// Returns rows `{studentId, name, rollNumber, classId, total, present,
-  /// percentage}`.
   Future<List<Map<String, dynamic>>> getSubjectAttendanceByStudent({
-    required int subjectId,
-    int? classId,
+    required String subjectId,
+    String? classId,
   }) async {
     final db = await _dbHelper.database;
     final args = <Object?>[subjectId];
@@ -572,7 +571,7 @@ class AttendanceRepository {
   /// Aggregate attendance for each subject within an academic session.
   Future<List<Map<String, dynamic>>> getSubjectAttendanceSummary({
     String? academicSessionId,
-    int? classId,
+    String? classId,
   }) async {
     final db = await _dbHelper.database;
     final where = <String>['sub.is_deleted = 0'];
@@ -614,8 +613,9 @@ class AttendanceRepository {
     }).toList();
   }
 
-  /// List of past attendance sessions recorded for [subjectId] with aggregate counts.
-  Future<List<Map<String, dynamic>>> getSubjectSessionHistory(int subjectId) async {
+  /// List of past attendance sessions recorded for [subjectId].
+  Future<List<Map<String, dynamic>>> getSubjectSessionHistory(
+      String subjectId) async {
     final db = await _dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT
@@ -667,7 +667,8 @@ class AttendanceRepository {
   }
 
   /// Breakdown of attendance by subject for a given student.
-  Future<List<Map<String, dynamic>>> getStudentAttendanceBySubject(int studentId) async {
+  Future<List<Map<String, dynamic>>> getStudentAttendanceBySubject(
+      String studentId) async {
     final db = await _dbHelper.database;
     final studentRow = await db.query(
       'students',
@@ -677,7 +678,7 @@ class AttendanceRepository {
       limit: 1,
     );
     if (studentRow.isEmpty) return [];
-    final classId = studentRow.first['class_id'] as int;
+    final classId = studentRow.first['class_id'] as String;
 
     final rows = await db.rawQuery('''
       SELECT
@@ -721,7 +722,7 @@ class AttendanceRepository {
     }).toList();
   }
 
-  /// Today's institute-wide attendance summary: total marked, present, late, absent, leave, rate.
+  /// Today's institute-wide attendance summary.
   Future<Map<String, dynamic>> getTodayOverview() async {
     final db = await _dbHelper.database;
     final today = AppDateUtils.dateKey(DateTime.now());
@@ -737,14 +738,7 @@ class AttendanceRepository {
     ''', [today]);
 
     if (rows.isEmpty) {
-      return {
-        'total': 0,
-        'present': 0,
-        'late': 0,
-        'absent': 0,
-        'leave': 0,
-        'rate': 0.0,
-      };
+      return {'total': 0, 'present': 0, 'late': 0, 'absent': 0, 'leave': 0, 'rate': 0.0};
     }
 
     final total = (rows.first['total'] as int?) ?? 0;

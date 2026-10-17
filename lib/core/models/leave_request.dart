@@ -87,13 +87,17 @@ class LeaveRequest {
   }
 
   /// Creates a [LeaveRequest] from a database row map.
+  ///
+  /// Handles v5 rows (integer id + uuid column) and v6 rows (TEXT UUID as id).
   factory LeaveRequest.fromMap(Map<String, dynamic> map) {
-    // Prefer the canonical UUID; fall back to the legacy integer primary key.
     final rawUuid = map['uuid']?.toString();
     final rawId = map['id']?.toString();
-    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty)
+    final looksLikeInt = (String? s) => s != null && RegExp(r'^\d+$').hasMatch(s);
+    final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !looksLikeInt(rawUuid))
         ? rawUuid
-        : (rawId ?? '');
+        : (rawId != null && !looksLikeInt(rawId))
+            ? rawId
+            : (rawId ?? UuidUtils.generate());
 
     return LeaveRequest(
       id: canonicalId,
@@ -116,12 +120,10 @@ class LeaveRequest {
 
   /// Converts to a database row map for insert/update.
   ///
-  /// `id` is intentionally omitted: on the legacy `leave_requests` table it is an
-  /// `INTEGER PRIMARY KEY AUTOINCREMENT`, so the canonical UUID is written to the
-  /// dedicated `uuid` column instead.
+  /// In the v6 schema `id` is the TEXT UUID primary key.
   Map<String, dynamic> toMap() {
     return {
-      'uuid': id,
+      'id': id,
       'requester_name': requesterName,
       'leave_type': leaveType,
       'start_date': startDate.toIso8601String(),

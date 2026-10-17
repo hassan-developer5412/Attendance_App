@@ -10,6 +10,7 @@ import 'package:attendance_app/core/repositories/student_repository.dart';
 import 'package:attendance_app/core/repositories/subject_repository.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/theme/app_theme.dart';
+import 'package:attendance_app/core/utils/uuid_utils.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/classes_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/students_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/teachers_content.dart';
@@ -17,7 +18,6 @@ import 'package:attendance_app/features/dashboard/presentation/widgets/institute
 
 class _FakeClassRepo extends ClassRepository {
   final List<SchoolClass> items = [];
-  int _nextId = 1;
 
   @override
   Future<List<SchoolClass>> getAll({bool includeDeleted = false}) async =>
@@ -34,7 +34,7 @@ class _FakeClassRepo extends ClassRepository {
     String currentYear = '',
   }) async {
     final c = SchoolClass(
-      id: _nextId++,
+      id: UuidUtils.generate(),
       name: name,
       section: section,
       room: room,
@@ -48,14 +48,13 @@ class _FakeClassRepo extends ClassRepository {
   }
 
   @override
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     items.removeWhere((i) => i.id == id);
   }
 }
 
 class _FakeFacultyRepo extends FacultyRepository {
   final List<Teacher> items = [];
-  int _nextId = 1;
 
   @override
   Future<List<Teacher>> getAll({bool includeDeleted = false}) async =>
@@ -68,20 +67,21 @@ class _FakeFacultyRepo extends FacultyRepository {
     String email = '',
     String username = '',
     String password = '',
-    int? classId,
+    String? classId,
     String? employeeCode,
     String designation = 'Instructor',
     String? departmentId,
   }) async {
+    final id = UuidUtils.generate();
     final t = Teacher(
-      id: _nextId++,
+      id: id,
       name: name,
       subject: subject,
       email: email,
       username: username,
       password: password,
       classId: classId,
-      employeeCode: employeeCode ?? 'FAC-$_nextId',
+      employeeCode: employeeCode ?? 'FAC-${id.substring(0, 8)}',
       designation: designation,
       departmentId: departmentId,
     );
@@ -96,14 +96,13 @@ class _FakeFacultyRepo extends FacultyRepository {
   }
 
   @override
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     items.removeWhere((t) => t.id == id);
   }
 }
 
 class _FakeStudentRepo extends StudentRepository {
   final List<Student> items = [];
-  int _nextId = 1;
 
   @override
   Future<List<Student>> getAll({bool includeDeleted = false}) async =>
@@ -113,7 +112,7 @@ class _FakeStudentRepo extends StudentRepository {
   Future<Student> insert({
     required String name,
     required String rollNumber,
-    required int classId,
+    required String classId,
     String? registrationNo,
     String fatherName = '',
     String? departmentId,
@@ -122,7 +121,7 @@ class _FakeStudentRepo extends StudentRepository {
     String status = 'ACTIVE',
   }) async {
     final s = Student(
-      id: _nextId++,
+      id: UuidUtils.generate(),
       name: name,
       rollNumber: rollNumber,
       classId: classId,
@@ -138,14 +137,13 @@ class _FakeStudentRepo extends StudentRepository {
   }
 
   @override
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     items.removeWhere((s) => s.id == id);
   }
 }
 
 class _FakeSubjectRepo extends SubjectRepository {
   final List<Subject> items = [];
-  int _nextId = 1;
 
   @override
   Future<List<Subject>> getAll({bool includeDeleted = false}) async =>
@@ -156,16 +154,16 @@ class _FakeSubjectRepo extends SubjectRepository {
     required String name,
     required String code,
     required String teacherName,
-    required int classId,
+    required String classId,
     String? departmentId,
     String? academicSessionId,
     String year = '',
     SubjectType subjectType = SubjectType.theory,
     double contactHours = 0,
-    int? teacherId,
+    String? teacherId,
   }) async {
     final s = Subject(
-      id: _nextId++,
+      id: UuidUtils.generate(),
       name: name,
       code: code,
       teacherName: teacherName,
@@ -188,7 +186,7 @@ class _FakeSubjectRepo extends SubjectRepository {
   }
 
   @override
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     items.removeWhere((s) => s.id == id);
   }
 }
@@ -236,7 +234,8 @@ void main() {
     expect(find.text('Grade 7 — B'), findsOneWidget);
   });
 
-  testWidgets('add teacher dialog opens and submits without crashing', (tester) async {
+  testWidgets('add teacher dialog opens and submits without crashing',
+      (tester) async {
     await tester.pumpWidget(wrap(const TeachersContent()));
     await tester.pumpAndSettle();
 
@@ -245,10 +244,14 @@ void main() {
 
     expect(find.byType(AddTeacherDialog), findsOneWidget);
 
-    await tester.enterText(find.byKey(const Key('teacherNameField')), 'Nadia Ali');
-    await tester.enterText(find.byKey(const Key('teacherEmailField')), 'nadia@gilt.edu');
-    await tester.enterText(find.byKey(const Key('teacherUsernameField')), 'nadia');
-    await tester.enterText(find.byKey(const Key('teacherPasswordField')), 'pass123');
+    await tester.enterText(
+        find.byKey(const Key('teacherNameField')), 'Nadia Ali');
+    await tester.enterText(
+        find.byKey(const Key('teacherEmailField')), 'nadia@gilt.edu');
+    await tester.enterText(
+        find.byKey(const Key('teacherUsernameField')), 'nadia');
+    await tester.enterText(
+        find.byKey(const Key('teacherPasswordField')), 'pass123');
 
     await tester.ensureVisible(find.byKey(const Key('confirmAddButton')));
     await tester.tap(find.byKey(const Key('confirmAddButton')));
@@ -258,7 +261,8 @@ void main() {
     expect(find.text('Nadia Ali'), findsOneWidget);
   });
 
-  testWidgets('add student dialog opens and submits without crashing', (tester) async {
+  testWidgets('add student dialog opens and submits without crashing',
+      (tester) async {
     await tester.pumpWidget(wrap(const StudentsContent()));
     await tester.pumpAndSettle();
 
@@ -267,7 +271,8 @@ void main() {
 
     expect(find.byType(AddStudentDialog), findsOneWidget);
 
-    await tester.enterText(find.byKey(const Key('studentNameField')), 'Bilal Hussain');
+    await tester.enterText(
+        find.byKey(const Key('studentNameField')), 'Bilal Hussain');
     await tester.enterText(find.byKey(const Key('studentRollField')), '09A-99');
 
     await tester.ensureVisible(find.byKey(const Key('confirmAddButton')));

@@ -14,29 +14,18 @@ class ClassRepository {
     final rows = await db.query(
       'classes',
       where: includeDeleted ? null : 'is_deleted = 0',
-      orderBy: 'id DESC',
+      orderBy: 'class_name ASC, current_year ASC',
     );
     return rows.map(SchoolClass.fromMap).toList();
   }
 
-  Future<SchoolClass?> getById(int id) async {
+  /// Look up a class by its UUID primary key.
+  Future<SchoolClass?> getById(String id) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
       'classes',
       where: 'id = ? AND is_deleted = 0',
       whereArgs: [id],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    return SchoolClass.fromMap(rows.first);
-  }
-
-  Future<SchoolClass?> getByUuid(String uuid) async {
-    final db = await _dbHelper.database;
-    final rows = await db.query(
-      'classes',
-      where: 'uuid = ? AND is_deleted = 0',
-      whereArgs: [uuid],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -80,9 +69,9 @@ class ClassRepository {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     final resolvedClassName = (className ?? name).trim();
-    final uuid = UuidUtils.generate();
+    final id = UuidUtils.generate();
     final rowMap = {
-      'uuid': uuid,
+      'id': id,
       'name': name.trim(),
       'section': section.trim(),
       'room': room.trim(),
@@ -95,11 +84,10 @@ class ClassRepository {
       'sync_status': 'PENDING',
       'is_deleted': 0,
     };
-    final id = await db.insert('classes', rowMap);
+    await db.insert('classes', rowMap);
     SyncService.instance.schedulePush('classes', idColumn: 'id', idValue: id);
     return SchoolClass(
       id: id,
-      uuid: uuid,
       name: name.trim(),
       section: section.trim(),
       room: room.trim(),
@@ -136,17 +124,13 @@ class ClassRepository {
     );
   }
 
-  Future<void> softDelete(int id) async {
+  Future<void> softDelete(String id) async {
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.transaction((txn) async {
       await txn.update(
         'classes',
-        {
-          'is_deleted': 1,
-          'updated_at': now,
-          'sync_status': 'PENDING',
-        },
+        {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
         where: 'id = ?',
         whereArgs: [id],
       );
@@ -154,11 +138,7 @@ class ClassRepository {
       // Unassign teachers from deleted class
       await txn.update(
         'teachers',
-        {
-          'class_id': null,
-          'updated_at': now,
-          'sync_status': 'PENDING',
-        },
+        {'class_id': null, 'updated_at': now, 'sync_status': 'PENDING'},
         where: 'class_id = ?',
         whereArgs: [id],
       );
@@ -166,11 +146,7 @@ class ClassRepository {
       // Soft delete students belonging to this class
       await txn.update(
         'students',
-        {
-          'is_deleted': 1,
-          'updated_at': now,
-          'sync_status': 'PENDING',
-        },
+        {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
         where: 'class_id = ?',
         whereArgs: [id],
       );
@@ -178,17 +154,11 @@ class ClassRepository {
       // Soft delete subjects belonging to this class
       await txn.update(
         'subjects',
-        {
-          'is_deleted': 1,
-          'updated_at': now,
-          'sync_status': 'PENDING',
-        },
+        {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
         where: 'class_id = ?',
         whereArgs: [id],
       );
     });
-    // Cascaded teachers/students/subjects rows are marked PENDING above and
-    // are picked up by the background flush; push the class row itself now.
     SyncService.instance.schedulePush('classes', idColumn: 'id', idValue: id);
   }
 
