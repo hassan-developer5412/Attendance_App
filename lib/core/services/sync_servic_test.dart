@@ -88,7 +88,7 @@ class SyncService {
 
   void _logError(String message, [Object? error, StackTrace? stackTrace]) {
     debugPrint('================ [SyncService ERROR] ================');
-    debugPrint('$message');
+    debugPrint(message);
     if (error != null) {
       if (error is PostgrestException) {
         debugPrint('  Type: PostgrestException');

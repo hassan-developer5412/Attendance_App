@@ -1,6 +1,7 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/date_utils.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
@@ -115,6 +116,35 @@ class AttendanceRepository {
     return rows.map(AttendanceRecord.fromMap).toList();
   }
 
+  /// Default deadline window for teachers to modify an attendance session.
+  static const Duration defaultEditDeadline = Duration(hours: 24);
+
+  /// Checks if an attendance session has passed its editing deadline window.
+  Future<bool> isSessionLocked(
+    String sessionId, {
+    Duration deadline = defaultEditDeadline,
+  }) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'attendance_sessions',
+      columns: ['created_at', 'session_date'],
+      where: 'id = ? AND is_deleted = 0',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    final row = rows.first;
+    DateTime? created;
+    if (row['created_at'] != null) {
+      created = DateTime.tryParse(row['created_at'] as String)?.toUtc();
+    }
+    if (created == null && row['session_date'] != null) {
+      created = DateTime.tryParse(row['session_date'] as String)?.toUtc();
+    }
+    if (created == null) return false;
+    return DateTime.now().toUtc().difference(created) > deadline;
+  }
+
   /// Inserts or updates a single student's status within a session.
   ///
   /// [studentId] is a UUID string (TEXT PK in v6).
@@ -124,7 +154,16 @@ class AttendanceRepository {
     required AttendanceStatus status,
     DateTime? checkInTime,
     DateTime? checkOutTime,
+    bool isOverride = false,
   }) async {
+    if (PermissionService.instance.currentUserId != null &&
+        !PermissionService.instance.hasPermission(PermissionCodes.attendanceMark)) {
+      throw PermissionDeniedException(
+        PermissionCodes.attendanceMark,
+        userId: PermissionService.instance.currentUserId,
+      );
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -136,6 +175,19 @@ class AttendanceRepository {
     );
 
     if (existing.isNotEmpty) {
+      final locked = await isSessionLocked(sessionId);
+      if (locked) {
+        final canOverride = isOverride ||
+            PermissionService.instance.canManageRoles() ||
+            PermissionService.instance.hasPermission(
+              PermissionCodes.attendanceCorrectAfterDeadline,
+            );
+        if (!canOverride) {
+          throw const PermissionDeniedException(
+            PermissionCodes.attendanceCorrectAfterDeadline,
+          );
+        }
+      }
       final existingId = existing.first['id'] as String;
       await db.update(
         'attendance_records',
@@ -621,6 +673,7 @@ class AttendanceRepository {
       SELECT
         s.id AS session_id,
         s.session_date,
+        s.created_at,
         s.subject_code,
         s.department_id,
         s.academic_session_id,
@@ -649,6 +702,7 @@ class AttendanceRepository {
       return {
         'sessionId': r['session_id'],
         'sessionDate': r['session_date'] as String,
+        'createdAt': r['created_at'] as String?,
         'subjectCode': r['subject_code'] as String,
         'departmentId': r['department_id'],
         'academicSessionId': r['academic_session_id'],
@@ -664,6 +718,33 @@ class AttendanceRepository {
         'attendanceRate': rate,
       };
     }).toList();
+  }
+
+  /// Detailed attendance logs for a specific student, joined with session & subject info.
+  Future<List<Map<String, dynamic>>> getDetailedAttendanceForStudent(
+      String studentId) async {
+    final db = await _dbHelper.database;
+    final rows = await db.rawQuery('''
+      SELECT
+        a.id,
+        a.session_id,
+        a.student_id,
+        a.date,
+        a.status,
+        a.check_in_time,
+        a.check_out_time,
+        a.created_at,
+        ses.subject_code,
+        ses.remarks AS session_remarks,
+        sub.name AS subject_name,
+        sub.id AS subject_id
+      FROM attendance_records a
+      LEFT JOIN attendance_sessions ses ON ses.id = a.session_id
+      LEFT JOIN subjects sub ON sub.id = ses.subject_id
+      WHERE a.student_id = ? AND a.is_deleted = 0
+      ORDER BY a.date DESC, a.created_at DESC
+    ''', [studentId]);
+    return rows;
   }
 
   /// Breakdown of attendance by subject for a given student.

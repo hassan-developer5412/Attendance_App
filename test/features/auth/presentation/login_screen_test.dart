@@ -13,7 +13,7 @@ import 'package:attendance_app/main.dart';
 void main() {
   group('LoginScreen Widget Tests (no DB)', () {
     testWidgets(
-        'App starts with LoginScreen as the initial screen with default credentials',
+        'App starts with LoginScreen as the initial screen with identifier field',
         (tester) async {
       final app = AttendanceApp(
         authStore: AuthStore(),
@@ -30,17 +30,55 @@ void main() {
       expect(find.text(AppConstants.appName), findsOneWidget);
       expect(find.text('Sign in to manage institute attendance'), findsOneWidget);
 
-      final usernameField = tester.widget<TextFormField>(
-        find.byKey(const Key('usernameField')),
+      final identifierField = tester.widget<TextFormField>(
+        find.byKey(const Key('identifierField')),
       );
       final passwordField = tester.widget<TextFormField>(
         find.byKey(const Key('passwordField')),
       );
 
-      expect(usernameField.controller?.text,
-          equals(AppConstants.defaultAdminUsername));
-      expect(passwordField.controller?.text,
-          equals(AppConstants.defaultAdminPassword));
+      expect(identifierField.controller?.text, isEmpty);
+      expect(passwordField.controller?.text, isEmpty);
+    });
+
+    testWidgets('Identifier field accepts roll number input',
+        (tester) async {
+      final app = AttendanceApp(
+        authStore: AuthStore(),
+        instituteStore: InstituteStore(),
+        attendanceStore: AttendanceStore(),
+        leaveStore: LeaveStore(),
+        themeNotifier: ThemeNotifier(),
+      );
+
+      await tester.pumpWidget(app);
+      await tester.pump();
+
+      final identifierField = find.byKey(const Key('identifierField'));
+
+      await tester.enterText(identifierField, 'CIT-2025-001');
+      final controller = tester.widget<TextFormField>(identifierField).controller;
+      expect(controller?.text, equals('CIT-2025-001'));
+    });
+
+    testWidgets('Identifier field accepts employee ID input',
+        (tester) async {
+      final app = AttendanceApp(
+        authStore: AuthStore(),
+        instituteStore: InstituteStore(),
+        attendanceStore: AttendanceStore(),
+        leaveStore: LeaveStore(),
+        themeNotifier: ThemeNotifier(),
+      );
+
+      await tester.pumpWidget(app);
+      await tester.pump();
+
+      final identifierField = find.byKey(const Key('identifierField'));
+
+      await tester.enterText(identifierField, 'EMP-10042');
+      final controller = tester.widget<TextFormField>(identifierField).controller;
+      expect(controller?.text, equals('EMP-10042'));
     });
 
     testWidgets('Password visibility toggle toggles obscureText',
@@ -69,6 +107,43 @@ void main() {
 
       editableText = tester.widget<EditableText>(editableTextFinder);
       expect(editableText.obscureText, isFalse);
+    });
+
+    testWidgets('Forgot password opens recovery dialog with email field',
+        (tester) async {
+      final app = AttendanceApp(
+        authStore: AuthStore(),
+        instituteStore: InstituteStore(),
+        attendanceStore: AttendanceStore(),
+        leaveStore: LeaveStore(),
+        themeNotifier: ThemeNotifier(),
+      );
+
+      await tester.pumpWidget(app);
+      await tester.pump();
+
+      // Dialog opens on email entry step (stage 0).
+      await tester.tap(find.byKey(const Key('forgotPasswordButton')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(TextFormField), findsAtLeastNWidgets(1));
+      expect(find.text('Enter the email address of your account.'), findsOneWidget);
+    });
+
+    testWidgets('Quick dev sign-in button is visible in debug mode', (tester) async {
+      final app = AttendanceApp(
+        authStore: AuthStore(),
+        instituteStore: InstituteStore(),
+        attendanceStore: AttendanceStore(),
+        leaveStore: LeaveStore(),
+        themeNotifier: ThemeNotifier(),
+      );
+
+      await tester.pumpWidget(app);
+      await tester.pump();
+
+      expect(find.byKey(const Key('devBypassButton')), findsOneWidget);
+      expect(find.text('⚡ Quick Dev Sign-In (Admin Bypass)'), findsOneWidget);
     });
   });
 }

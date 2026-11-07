@@ -4,6 +4,8 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 
 /// Staff directory for teachers with admin add, edit, and delete actions,
 /// displaying department affiliation, designation, employee code, and assigned subjects with academic context.
@@ -316,23 +318,33 @@ class _TeachersContentState extends State<TeachersContent> {
 
                   const SizedBox(height: 16),
                   const Divider(),
-                  ListTile(
-                    leading:
-                        Icon(Icons.edit_outlined, color: colorScheme.primary),
-                    title: const Text('Edit teacher profile'),
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      _showEditDialog(store, teacher);
-                    },
+                  PermissionGuard(
+                    permission: PermissionCodes.teacherEdit,
+                    departmentId: teacher.departmentId,
+                    fallback: const SizedBox.shrink(),
+                    child: ListTile(
+                      leading:
+                          Icon(Icons.edit_outlined, color: colorScheme.primary),
+                      title: const Text('Edit teacher profile'),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _showEditDialog(store, teacher);
+                      },
+                    ),
                   ),
-                  ListTile(
-                    leading:
-                        Icon(Icons.delete_outline_rounded, color: colorScheme.error),
-                    title: const Text('Delete teacher'),
-                    onTap: () {
-                      Navigator.of(ctx).pop();
-                      _confirmDelete(store, teacher);
-                    },
+                  PermissionGuard(
+                    permission: PermissionCodes.teacherDelete,
+                    departmentId: teacher.departmentId,
+                    fallback: const SizedBox.shrink(),
+                    child: ListTile(
+                      leading: Icon(Icons.delete_outline_rounded,
+                          color: colorScheme.error),
+                      title: const Text('Delete teacher'),
+                      onTap: () {
+                        Navigator.of(ctx).pop();
+                        _confirmDelete(store, teacher);
+                      },
+                    ),
                   ),
                 ],
               ),
@@ -400,10 +412,13 @@ class _TeachersContentState extends State<TeachersContent> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                FilledButton.icon(
-                  onPressed: () => _showAddDialog(store),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add teacher'),
+                PermissionGuard(
+                  permission: PermissionCodes.teacherCreate,
+                  child: FilledButton.icon(
+                    onPressed: () => _showAddDialog(store),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add teacher'),
+                  ),
                 ),
               ],
             ),

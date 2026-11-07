@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Page that lists subjects for a given class and lets the user add or remove them.
 class SubjectsContent extends StatefulWidget {
@@ -493,9 +494,9 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
                 Row(
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<SubjectType>(
+                      child: AppDropdownButtonFormField<SubjectType>(
                         initialValue: _selectedType,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Subject Type',
                           prefixIcon: Icon(Icons.category_rounded),
                         ),
@@ -503,7 +504,10 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
                             .map(
                               (t) => DropdownMenuItem(
                                 value: t,
-                                child: Text(t.label),
+                                child: Text(
+                                  t.label,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             )
                             .toList(),
@@ -514,9 +518,10 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: DropdownButtonFormField<String>(
+                      child: AppDropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _selectedYear,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Academic Year',
                           prefixIcon: Icon(Icons.timeline_rounded),
                         ),
@@ -524,7 +529,10 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
                             .map(
                               (y) => DropdownMenuItem(
                                 value: y,
-                                child: Text(y),
+                                child: Text(
+                                  y,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             )
                             .toList(),
@@ -536,7 +544,7 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<Teacher>(
+                AppDropdownButtonFormField<Teacher>(
                   initialValue: _selectedTeacher,
                   decoration: const InputDecoration(
                     labelText: 'Assigned Teacher',
@@ -546,12 +554,18 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
                   items: [
                     const DropdownMenuItem<Teacher>(
                       value: null,
-                      child: Text('Unassigned'),
+                      child: Text(
+                        'Unassigned',
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                     ...widget.teachers.map(
                       (teacher) => DropdownMenuItem<Teacher>(
                         value: teacher,
-                        child: Text('${teacher.name} (${teacher.designation})'),
+                        child: Text(
+                          '${teacher.name} (${teacher.designation})',
+                          overflow: TextOverflow.ellipsis,
+                        ),
                       ),
                     ),
                   ],

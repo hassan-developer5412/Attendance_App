@@ -92,7 +92,7 @@ class LeaveRequest {
   factory LeaveRequest.fromMap(Map<String, dynamic> map) {
     final rawUuid = map['uuid']?.toString();
     final rawId = map['id']?.toString();
-    final looksLikeInt = (String? s) => s != null && RegExp(r'^\d+$').hasMatch(s);
+    bool looksLikeInt(String? s) => s != null && RegExp(r'^\d+$').hasMatch(s);
     final canonicalId = (rawUuid != null && rawUuid.isNotEmpty && !looksLikeInt(rawUuid))
         ? rawUuid
         : (rawId != null && !looksLikeInt(rawId))

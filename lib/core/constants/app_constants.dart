@@ -25,9 +25,18 @@ class AppConstants {
   /// 4 — academic sessions, class year structure, subject-based attendance
   /// 5 — Supabase replication columns (institute_id, is_synced)
   /// 6 — Full UUID migration: INTEGER PKs → TEXT UUID PKs; FK columns updated
-  static const int databaseVersion = 6;
+  /// 7 — User session security: `auth_user_id` identity link, suspension and
+  ///     failed-login tracking, password/session timestamps on `users`;
+  ///     `teachers.user_id` foreign key; supporting indexes.
+  /// 8 — Sync queue dead-letter queue: `sync_queue.status` (PENDING /
+  ///     QUARANTINED) and `sync_queue.next_retry_at` for capped retries with
+  ///     exponential backoff instead of indefinite retry loops.
+  static const int databaseVersion = 8;
 
-  // Default seeded admin credentials (used on first launch only)
+  // Default admin credentials reference. No longer seeded on first launch
+  // (fresh installs start with an empty `users` table); retained here so the
+  // v7 migration can flag any pre-existing admin account with the default
+  // password.
   static const String defaultAdminUsername = 'admin';
   static const String defaultAdminPassword = 'Admin@123';
   static const String defaultAdminDisplayName = 'Administrator';
@@ -153,7 +162,11 @@ enum SubjectType {
 enum SyncStatus {
   pending('PENDING'),
   synced('SYNCED'),
-  failed('FAILED');
+  failed('FAILED'),
+  /// Permanently rejected (capped retries exhausted or an authorization /
+  /// schema error the client can never resolve by retrying). Quarantined
+  /// items are never drained again and must be resolved manually.
+  quarantined('QUARANTINED');
 
   const SyncStatus(this.value);
 
@@ -189,19 +202,98 @@ enum InventoryCategory {
 }
 
 /// The role a user can have inside the app.
+///
+/// Kept for backward compatibility with the legacy `users.role` column. The
+/// newer, permission-driven model lives in [Role] / [UserRoleAssignment] and
+/// is evaluated by [PermissionService].
 enum UserRole {
-  admin,
-  teacher,
-  student;
+  admin('admin'),
+  principal('principal'),
+  vicePrincipal('vice_principal'),
+  hod('hod'),
+  teacher('teacher'),
+  student('student'),
+  parent('parent'),
+  accountant('accountant'),
+  labInCharge('lab_in_charge'),
+  assistant('assistant');
 
-  String get value => name;
+  const UserRole(this._code);
+
+  /// Canonical code persisted to the database / sent to the backend.
+  final String _code;
+
+  String get code => _code;
+
+  /// Alias for [code] so existing callers keep working.
+  String get value => _code;
 
   static UserRole fromString(String value) {
     return UserRole.values.firstWhere(
-      (role) => role.name == value,
+      (role) => role.code == value || role.name == value,
       orElse: () => UserRole.teacher,
     );
   }
+}
+
+/// Canonical permission codes used by the RBAC engine.
+///
+/// Repositories call `PermissionService.instance.hasPermission(PermissionCodes.xxx)`
+/// and the UI uses `PermissionGuard(permission: PermissionCodes.xxx)`.
+class PermissionCodes {
+  PermissionCodes._();
+
+  // ┌── Students ──────────────────────────────────────────────────────────
+  static const studentView = 'student.view';
+  static const studentCreate = 'student.create';
+  static const studentEdit = 'student.edit';
+  static const studentDelete = 'student.delete';
+
+  // ┌── Teachers ──────────────────────────────────────────────────────────
+  static const teacherView = 'teacher.view';
+  static const teacherCreate = 'teacher.create';
+  static const teacherEdit = 'teacher.edit';
+  static const teacherDelete = 'teacher.delete';
+
+  // ┌── Attendance ────────────────────────────────────────────────────────
+  static const attendanceView = 'attendance.view';
+  static const attendanceMark = 'attendance.mark';
+  static const attendanceEdit = 'attendance.edit';
+  static const attendanceDelete = 'attendance.delete';
+  static const attendanceCorrectAfterDeadline =
+      'attendance.correct_after_deadline';
+
+  // ┌── Leave ─────────────────────────────────────────────────────────────
+  static const leaveView = 'leave.view';
+  static const leaveApprove = 'leave.approve';
+
+  // ┌── Users & role management ───────────────────────────────────────────
+  static const userView = 'user.view';
+  static const userCreate = 'user.create';
+  static const userEdit = 'user.edit';
+  static const userDelete = 'user.delete';
+  /// Grants authority to assign/modify user roles (Admin / Principal / VP).
+  static const userManageRoles = 'user.manage_roles';
+
+  // ┌── Classes ───────────────────────────────────────────────────────────
+  static const classManage = 'class.manage';
+
+  // ┌── Reports ───────────────────────────────────────────────────────────
+  static const reportView = 'report.view';
+
+  // ┌── Fees ──────────────────────────────────────────────────────────────
+  static const feeView = 'fee.view';
+  static const feeManage = 'fee.manage';
+
+  // ┌── Lab ───────────────────────────────────────────────────────────────
+  static const labView = 'lab.view';
+  static const labManage = 'lab.manage';
+
+  // ┌── Settings ──────────────────────────────────────────────────────────
+  static const settingManage = 'setting.manage';
+
+  // ┌── Dashboard ─────────────────────────────────────────────────────────
+  static const dashboardView = 'dashboard.view';
 }
 
 /// The daily attendance status for a given record.

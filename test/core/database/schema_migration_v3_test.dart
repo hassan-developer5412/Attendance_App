@@ -178,15 +178,19 @@ void main() {
       }
     });
 
-    test('seeds the default admin with a canonical UUID', () async {
+    test('starts with an empty users table (no default admin seeded)', () async {
+      // Fresh v7 installs ship with an empty `users` table so no default
+      // credentials exist on the device.
       final rows = await db.query('users');
-      expect(rows, hasLength(1));
-      final admin = rows.first;
-      expect(admin['username'], AppConstants.defaultAdminUsername);
-      expect(admin['password_hash'], isNot(AppConstants.defaultAdminPassword));
-      expect(admin['uuid'], UuidUtils.deterministic('users', 'admin'));
-      expect(admin['sync_status'], 'SYNCED');
-      expect(admin['is_deleted'], 0);
+      expect(rows, isEmpty);
+
+      final info = await db.rawQuery('PRAGMA table_info(users)');
+      final columns = info.map((row) => row['name'] as String).toSet();
+      expect(columns, contains('auth_user_id'));
+      expect(columns, contains('is_default_password'));
+      expect(columns, contains('is_suspended'));
+      expect(columns, contains('failed_login_attempts'));
+      expect(columns, contains('session_expires_at'));
     });
 
     test('seeds every GILT academic department idempotently', () async {

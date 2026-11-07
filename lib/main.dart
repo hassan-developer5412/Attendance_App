@@ -13,8 +13,9 @@ import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/state/rbac_store.dart'; // ADD THIS
+import 'package:attendance_app/core/state/user_store.dart';
 import 'package:attendance_app/core/theme/app_theme.dart';
-import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 
 Future<void> main() async {
@@ -78,8 +79,8 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
     final leaveStore = LeaveStore();
     await leaveStore.loadAll();
 
-    // Initialize theme notifier (loads persisted preference, defaults to system).
-    final themeNotifier = ThemeNotifier();
+    // Initialize UserStore for managing users and staff.
+    final userStore = UserStore();
 
     // Kick off background Supabase sync (no-op unless Supabase is configured
     // and initialized). Failures never block app startup.
@@ -92,12 +93,16 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
       debugPrintStack(stackTrace: s);
     }
 
+    final rbacStore = RBACStore(); // ADD THIS
+    authStore.attachRbacStore(rbacStore); // ADD THIS
+
     return AttendanceApp(
       authStore: authStore,
       instituteStore: instituteStore,
       attendanceStore: attendanceStore,
       leaveStore: leaveStore,
-      themeNotifier: themeNotifier,
+      rbacStore: rbacStore,
+      userStore: userStore,
     );
   }
 
@@ -211,14 +216,16 @@ class AttendanceApp extends StatelessWidget {
     required this.instituteStore,
     required this.attendanceStore,
     required this.leaveStore,
-    required this.themeNotifier,
+    required this.rbacStore,
+    required this.userStore,
   });
 
   final AuthStore authStore;
   final InstituteStore instituteStore;
   final AttendanceStore attendanceStore;
   final LeaveStore leaveStore;
-  final ThemeNotifier themeNotifier;
+  final RBACStore rbacStore;
+  final UserStore userStore;
 
   @override
   Widget build(BuildContext context) {
@@ -228,17 +235,16 @@ class AttendanceApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: instituteStore),
         ChangeNotifierProvider.value(value: attendanceStore),
         ChangeNotifierProvider.value(value: leaveStore),
-        ChangeNotifierProvider.value(value: themeNotifier),
+        ChangeNotifierProvider.value(value: userStore),
+        ChangeNotifierProvider.value(value: rbacStore),
       ],
-      child: Consumer<ThemeNotifier>(
-        builder: (context, themeNotifier, _) => MaterialApp(
-          title: AppConstants.appName,
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.light,
-          darkTheme: AppTheme.dark,
-          themeMode: themeNotifier.themeMode,
-          home: const LoginScreen(),
-        ),
+      child: MaterialApp(
+        title: AppConstants.appName,
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: ThemeMode.system,
+        home: const LoginScreen(),
       ),
     );
   }

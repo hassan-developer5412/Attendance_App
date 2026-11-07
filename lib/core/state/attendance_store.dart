@@ -27,6 +27,7 @@ class AttendanceStore extends ChangeNotifier {
   String? _currentSessionId;
   bool _isSessionLoaded = false;
   bool _isPreviouslySaved = false;
+  bool _isSessionLocked = false;
   String _sessionRemarks = '';
 
   /// Draft statuses keyed by student UUID string.
@@ -35,6 +36,7 @@ class AttendanceStore extends ChangeNotifier {
   String? get currentSessionId => _currentSessionId;
   bool get isSessionLoaded => _isSessionLoaded;
   bool get isPreviouslySaved => _isPreviouslySaved;
+  bool get isSessionLocked => _isSessionLocked;
   String get sessionRemarks => _sessionRemarks;
   Map<String, AttendanceStatus> get draftStatuses =>
       Map.unmodifiable(_draftStatuses);
@@ -87,6 +89,7 @@ class AttendanceStore extends ChangeNotifier {
 
     _draftStatuses.clear();
     _sessionRemarks = '';
+    _isSessionLocked = await _repository.isSessionLocked(sessionId);
 
     if (existingRecords.isNotEmpty) {
       _isPreviouslySaved = true;
@@ -118,6 +121,7 @@ class AttendanceStore extends ChangeNotifier {
     String subjectCode = '',
     String? teacherId,
     String remarks = '',
+    bool isOverride = false,
   }) async {
     final sessionId = await _repository.ensureSession(
       departmentId: departmentId,
@@ -145,10 +149,12 @@ class AttendanceStore extends ChangeNotifier {
         studentId: student.id,
         status: status,
         checkInTime: checkIn,
+        isOverride: isOverride,
       );
     }
 
     _isPreviouslySaved = true;
+    _isSessionLocked = await _repository.isSessionLocked(sessionId);
     _records = await _repository.getForSession(sessionId);
     notifyListeners();
   }
@@ -238,4 +244,9 @@ class AttendanceStore extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getStudentAttendanceBySubject(
           String studentId) =>
       _repository.getStudentAttendanceBySubject(studentId);
+
+  /// Detailed attendance log records for a student.
+  Future<List<Map<String, dynamic>>> getDetailedAttendanceForStudent(
+          String studentId) =>
+      _repository.getDetailedAttendanceForStudent(studentId);
 }

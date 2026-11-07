@@ -1,12 +1,12 @@
-import 'dart:convert';
-import 'package:crypto/crypto.dart';
 import 'package:sqflite/sqflite.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
-import 'package:attendance_app/core/utils/uuid_utils.dart';
 
-/// Creates the full v6 database schema from scratch and seeds the default
-/// admin user plus canonical departments and academic sessions.
+/// Creates the full v7 database schema from scratch.
+///
+/// Fresh installs start with an empty `users` table — no default admin
+/// credentials are seeded. Canonical departments and academic sessions are
+/// still seeded idempotently.
 ///
 /// All tables use `TEXT PRIMARY KEY` holding a client-generated v4 UUID.
 /// There are no more `INTEGER PRIMARY KEY AUTOINCREMENT` columns.
@@ -66,7 +66,17 @@ class FreshDatabaseCreator {
         sync_status TEXT NOT NULL,
         is_deleted INTEGER NOT NULL DEFAULT 0,
         institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
-        is_synced INTEGER NOT NULL DEFAULT 0
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        auth_user_id TEXT,
+        is_default_password INTEGER DEFAULT 0,
+        is_suspended INTEGER DEFAULT 0,
+        suspended_at TEXT,
+        suspended_reason TEXT,
+        failed_login_attempts INTEGER DEFAULT 0,
+        locked_until TEXT,
+        password_changed_at TEXT,
+        last_login_at TEXT,
+        session_expires_at TEXT
       )
     ''');
 
@@ -110,6 +120,7 @@ class FreshDatabaseCreator {
         is_deleted INTEGER NOT NULL DEFAULT 0,
         institute_id TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}',
         is_synced INTEGER NOT NULL DEFAULT 0,
+        user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
         FOREIGN KEY (class_id) REFERENCES classes (id) ON DELETE SET NULL
       )
     ''');
@@ -261,24 +272,15 @@ class FreshDatabaseCreator {
 
     await batch.commit(noResult: true);
 
-    // ── Seed default admin user ──────────────────────────────────────────────
-    final passwordHash = sha256
-        .convert(utf8.encode(AppConstants.defaultAdminPassword))
-        .toString();
-
-    final adminId = UuidUtils.deterministic('users', 'admin');
-    await db.insert('users', {
-      'id': adminId,
-      'username': AppConstants.defaultAdminUsername,
-      'password_hash': passwordHash,
-      'display_name': AppConstants.defaultAdminDisplayName,
-      'email': AppConstants.defaultAdminEmail,
-      'role': UserRole.admin.value,
-      'created_at': now,
-      'updated_at': now,
-      'sync_status': 'SYNCED',
-      'is_deleted': 0,
-    });
+    // ── Supporting indexes ────────────────────────────────────────────────
+    await db.execute('''
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_auth_user_id
+      ON users(auth_user_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_teachers_user_id
+      ON teachers(user_id)
+    ''');
 
     await MigrationHelpers.seedDepartments(db);
     await MigrationHelpers.seedAcademicSessions(db);

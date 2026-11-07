@@ -43,18 +43,18 @@ class SyncService {
   bool get _enabled => SupabaseConfig.isReady;
 
   /// Local column used to compare-and-set a row as synced, per table.
-  /// All tables now use a TEXT UUID primary key in `id` (v6 schema).
+  /// Legacy INTEGER-PK tables sync via their `uuid` column; the rest via `id`.
   static const Map<String, String> _idColumns = <String, String>{
     'departments': 'id',
     'academic_sessions': 'id',
-    'users': 'id',
-    'classes': 'id',
-    'teachers': 'id',
-    'students': 'id',
-    'subjects': 'id',
+    'users': 'uuid',
+    'classes': 'uuid',
+    'teachers': 'uuid',
+    'students': 'uuid',
+    'subjects': 'uuid',
     'attendance_sessions': 'id',
-    'attendance_records': 'id',
-    'leave_requests': 'id',
+    'attendance_records': 'uuid',
+    'leave_requests': 'uuid',
     'lab_inventory': 'id',
   };
 
@@ -88,7 +88,7 @@ class SyncService {
 
   void _logError(String message, [Object? error, StackTrace? stackTrace]) {
     debugPrint('================ [SyncService ERROR] ================');
-    debugPrint('$message');
+    debugPrint(message);
     if (error != null) {
       if (error is PostgrestException) {
         debugPrint('  Type: PostgrestException');

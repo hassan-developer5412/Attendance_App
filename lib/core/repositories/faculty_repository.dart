@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
@@ -43,6 +45,18 @@ class FacultyRepository {
     String designation = 'Instructor',
     String? departmentId,
   }) async {
+    if (PermissionService.instance.currentUserId != null &&
+        !PermissionService.instance.hasPermission(
+          PermissionCodes.teacherCreate,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.teacherCreate,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: departmentId,
+      );
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     final id = UuidUtils.generate();
@@ -82,6 +96,18 @@ class FacultyRepository {
   }
 
   Future<void> update(Teacher teacher) async {
+    if (PermissionService.instance.currentUserId != null &&
+        !PermissionService.instance.hasPermission(
+          PermissionCodes.teacherEdit,
+          departmentId: teacher.departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.teacherEdit,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: teacher.departmentId,
+      );
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -111,6 +137,20 @@ class FacultyRepository {
   }
 
   Future<void> softDelete(String id) async {
+    if (PermissionService.instance.currentUserId != null) {
+      final teacher = await getById(id);
+      if (!PermissionService.instance.hasPermission(
+        PermissionCodes.teacherDelete,
+        departmentId: teacher?.departmentId,
+      )) {
+        throw PermissionDeniedException(
+          PermissionCodes.teacherDelete,
+          userId: PermissionService.instance.currentUserId,
+          departmentId: teacher?.departmentId,
+        );
+      }
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(

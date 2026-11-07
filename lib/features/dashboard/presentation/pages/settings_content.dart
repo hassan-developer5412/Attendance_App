@@ -9,6 +9,8 @@ import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
+import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
 
 /// Settings page with profile editing, academic session management, and department directory.
 class SettingsContent extends StatefulWidget {
@@ -338,85 +340,85 @@ class _SettingsContentState extends State<SettingsContent> {
                 borderRadius: BorderRadius.circular(12),
                 side: BorderSide(color: colorScheme.outlineVariant),
               ),
-              child: SwitchListTile(
-                title: const Text('Notifications'),
-                subtitle: const Text('Receive attendance alerts & notifications'),
-                value: _notificationsEnabled,
-                onChanged: (value) {
-                  setState(() => _notificationsEnabled = value);
-                },
-                secondary: const Icon(Icons.notifications_outlined),
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Theme
-            Text(
-              'Theme',
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              elevation: 0,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: colorScheme.outlineVariant),
-              ),
               child: Column(
                 children: [
-                  ListTile(
-                    leading: const Icon(Icons.phone_android_rounded),
-                    title: const Text('Device Theme'),
-                    subtitle: const Text('Follow system theme'),
-                    trailing: Radio<ThemeMode>(
-                      value: ThemeMode.system,
-                      groupValue: themeNotifier.themeMode,
-                      onChanged: (value) {
-                        if (value != null) {
-                          themeNotifier.setThemeMode(value);
-                        }
-                      },
+                  SwitchListTile(
+                    title: const Text('Notifications'),
+                    subtitle: const Text(
+                      'Receive attendance alerts & notifications',
                     ),
-                    onTap: () =>
-                        themeNotifier.setThemeMode(ThemeMode.system),
+                    value: _notificationsEnabled,
+                    onChanged: (value) {
+                      setState(() => _notificationsEnabled = value);
+                    },
+                    secondary: const Icon(Icons.notifications_outlined),
                   ),
+                  const Divider(height: 1),
                   ListTile(
-                    leading: const Icon(Icons.light_mode_rounded),
-                    title: const Text('Light'),
-                    subtitle: const Text('Always use light theme'),
-                    trailing: Radio<ThemeMode>(
-                      value: ThemeMode.light,
-                      groupValue: themeNotifier.themeMode,
+                    leading: const Icon(Icons.brightness_6_rounded),
+                    title: const Text('Theme'),
+                    subtitle: Text(
+                      'Current: ${_themeModeLabel(themeNotifier.themeMode)}',
+                    ),
+                    trailing: DropdownButton<ThemeMode>(
+                      value: themeNotifier.themeMode,
+                      items: const [
+                        DropdownMenuItem(
+                          value: ThemeMode.system,
+                          child: Text('Device Theme'),
+                        ),
+                        DropdownMenuItem(
+                          value: ThemeMode.light,
+                          child: Text('Light'),
+                        ),
+                        DropdownMenuItem(
+                          value: ThemeMode.dark,
+                          child: Text('Dark'),
+                        ),
+                      ],
                       onChanged: (value) {
                         if (value != null) {
                           themeNotifier.setThemeMode(value);
                         }
                       },
+                      borderRadius: BorderRadius.circular(12),
+                      dropdownColor: Theme.of(context).colorScheme.surface,
+                      iconEnabledColor: Theme.of(context).colorScheme.primary,
                     ),
-                    onTap: () =>
-                        themeNotifier.setThemeMode(ThemeMode.light),
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.dark_mode_rounded),
-                    title: const Text('Dark'),
-                    subtitle: const Text('Always use dark theme'),
-                    trailing: Radio<ThemeMode>(
-                      value: ThemeMode.dark,
-                      groupValue: themeNotifier.themeMode,
-                      onChanged: (value) {
-                        if (value != null) {
-                          themeNotifier.setThemeMode(value);
-                        }
-                      },
-                    ),
-                    onTap: () => themeNotifier.setThemeMode(ThemeMode.dark),
+                    onTap: null,
                   ),
                 ],
               ),
             ),
             const SizedBox(height: 24),
+
+                        // Role & Permission Management (Admin / Principal / VP)
+            PermissionGuard(
+              permission: PermissionCodes.userManageRoles,
+              fallback: const SizedBox.shrink(),
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 24),
+                child: Card(
+                  elevation: 0,
+                  color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
+                  ),
+                  child: ListTile(
+                    leading: const Icon(Icons.admin_panel_settings_rounded),
+                    title: const Text('Role & Permission Management'),
+                    subtitle: const Text('Manage predefined/custom roles and permission grants'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const RoleManagementScreen()),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
 
             // About
             Text(
@@ -461,6 +463,17 @@ class _SettingsContentState extends State<SettingsContent> {
         ),
       ),
     );
+  }
+
+  String _themeModeLabel(ThemeMode mode) {
+    switch (mode) {
+      case ThemeMode.system:
+        return 'Device Theme';
+      case ThemeMode.light:
+        return 'Light';
+      case ThemeMode.dark:
+        return 'Dark';
+    }
   }
 }
 

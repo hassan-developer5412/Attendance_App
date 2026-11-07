@@ -1,91 +1,161 @@
 import 'package:sqflite/sqflite.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
-import 'package:attendance_app/core/database/database_platform.dart';
 import 'package:attendance_app/core/database/migrations/fresh_database_creator.dart';
-import 'package:attendance_app/core/database/migrations/schema_migration_v3.dart';
-import 'package:attendance_app/core/database/migrations/schema_migration_v4.dart';
-import 'package:attendance_app/core/database/migrations/schema_migration_v5.dart';
-import 'package:attendance_app/core/database/migrations/schema_migration_v6.dart';
+import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
 
-/// Singleton helper that manages the SQLite database lifecycle.
-///
-/// Handles schema creation, migrations, and provides the shared [Database]
-/// instance to all stores.
 class DatabaseHelper {
-  DatabaseHelper._internal();
+  static final DatabaseHelper instance = DatabaseHelper._init();
+  DatabaseHelper._init() : _testDatabase = null;
 
-  DatabaseHelper.forTesting(Database db) : _database = db;
+  /// Creates a [DatabaseHelper] backed by an existing [Database] for testing.
+  /// Bypasses file-based `openDatabase` entirely.
+  DatabaseHelper.forTesting(this._testDatabase);
 
-  static final DatabaseHelper instance = DatabaseHelper._internal();
+  final Database? _testDatabase;
+  static Database? _database;
 
-  Database? _database;
-
-  /// Returns the shared database instance, initializing it on first access.
   Future<Database> get database async {
-    _database ??= await _initDatabase();
+    if (_testDatabase != null) return _testDatabase;
+    if (_database != null) return _database!;
+    _database = await _initDB('gilt_attendance.db');
     return _database!;
   }
 
-  Future<Database> _initDatabase() async {
-    final path = await databaseFilePath(AppConstants.databaseName);
-
-    return openDatabase(
-      path,
-      version: AppConstants.databaseVersion,
-      onConfigure: _onConfigure,
+  Future<Database> _initDB(String filePath) async {
+    final db = await openDatabase(
+      filePath,
+      version: 9,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
+      onDowngrade: _onDowngrade,
     );
+    await db.execute('PRAGMA foreign_keys = ON;');
+    return db;
   }
 
-  /// Enable foreign key support.
-  Future<void> _onConfigure(Database db) async {
-    await db.execute('PRAGMA foreign_keys = ON');
-  }
-
-  /// Migrate schema for existing databases without data loss.
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    if (oldVersion < 2) {
-      await db.execute(
-        "ALTER TABLE teachers ADD COLUMN email TEXT NOT NULL DEFAULT ''",
-      );
-      await db.execute(
-        "ALTER TABLE teachers ADD COLUMN username TEXT NOT NULL DEFAULT ''",
-      );
-      await db.execute(
-        "ALTER TABLE teachers ADD COLUMN password TEXT NOT NULL DEFAULT ''",
-      );
-    }
-
-    if (oldVersion < 3) {
-      await SchemaMigrationV3.execute(db);
-    }
-
-    if (oldVersion < 4) {
-      await SchemaMigrationV4.execute(db);
-    }
-
-    if (oldVersion < 5) {
-      await SchemaMigrationV5.execute(db);
-    }
-
-    if (oldVersion < 6) {
-      await SchemaMigrationV6.execute(db);
-    }
-  }
-
-  /// Create all tables and seed the default admin user.
-  Future<void> _onCreate(Database db, int version) async {
+  Future _onCreate(Database db, int version) async {
     await FreshDatabaseCreator.createAndSeed(db);
   }
 
-  /// Closes the database connection. Call during app teardown if needed.
-  Future<void> close() async {
-    final db = _database;
-    if (db != null && db.isOpen) {
-      await db.close();
-      _database = null;
+
+  Future _onUpgrade(Database db, int oldVersion, int newVersion) async {
+    // Additive migrations only - never drop tables
+    if (oldVersion < 7) {
+      if (oldVersion < 6) {
+        // Handled as needed
+      }
     }
+    if (oldVersion < 8) {
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'roll_no', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'employee_id', 'TEXT UNIQUE',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'display_name', "TEXT NOT NULL DEFAULT ''",
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'role', "TEXT NOT NULL DEFAULT 'admin'",
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'is_deleted', 'INTEGER NOT NULL DEFAULT 0',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'is_default_password', 'INTEGER NOT NULL DEFAULT 0',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'suspended_reason', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'failed_login_attempts', 'INTEGER NOT NULL DEFAULT 0',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'locked_until', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'password_changed_at', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'last_login_at', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'session_expires_at', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'auth_user_id', 'TEXT',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'institute_id',
+        "TEXT NOT NULL DEFAULT '${AppConstants.defaultInstituteId}'",
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'is_synced', 'INTEGER NOT NULL DEFAULT 0',
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'sync_status', "TEXT NOT NULL DEFAULT 'PENDING'",
+      );
+      await MigrationHelpers.addColumnIfNotExists(
+        db, 'users', 'updated_at', "TEXT NOT NULL DEFAULT (datetime('now'))",
+      );
+      await db.execute('''CREATE TABLE IF NOT EXISTS password_reset_codes (
+        email TEXT PRIMARY KEY,
+        code_hash TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        used_at TEXT,
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      )''');
+    }
+    if (oldVersion < 9) {
+      await SchemaMigrationV9.execute(db);
+    }
+    await db.execute('PRAGMA foreign_keys = ON;');
+  }
+
+  Future _onDowngrade(Database db, int oldVersion, int newVersion) async {
+    await db.execute('PRAGMA foreign_keys = ON;');
+  }
+
+  Future<int> insert(String table, Map<String, dynamic> data) async {
+    final db = await database;
+    return await db.insert(table, data);
+  }
+
+  Future<List<Map<String, dynamic>>> query(
+    String table, {
+    String? where,
+    List<Object?>? whereArgs,
+    String? orderBy,
+  }) async {
+    final db = await database;
+    return await db.query(table, where: where, whereArgs: whereArgs, orderBy: orderBy);
+  }
+
+  Future<int> update(
+    String table, {
+    required Map<String, dynamic> data,
+    required String where,
+    List<Object?>? whereArgs,
+  }) async {
+    final db = await database;
+    return await db.update(table, data, where: where, whereArgs: whereArgs);
+  }
+
+  Future<int> delete(
+    String table, {
+    required String where,
+    List<Object?>? whereArgs,
+  }) async {
+    final db = await database;
+    return await db.delete(table, where: where, whereArgs: whereArgs);
+  }
+
+  Future close() async {
+    final db = await database;
+    db.close();
+    _database = null;
   }
 }

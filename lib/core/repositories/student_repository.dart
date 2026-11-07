@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
@@ -26,6 +28,20 @@ class StudentRepository {
       'students',
       where: 'id = ? AND is_deleted = 0',
       whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return Student.fromMap(rows.first);
+  }
+
+  /// Look up a student by roll number.
+  Future<Student?> getByRollNumber(String rollNumber) async {
+    final db = await _dbHelper.database;
+    final clean = rollNumber.trim();
+    final rows = await db.query(
+      'students',
+      where: '(roll_number = ? OR roll_no = ?) AND is_deleted = 0',
+      whereArgs: [clean, clean],
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -66,6 +82,18 @@ class StudentRepository {
     String currentYear = '1st Year',
     String status = 'ACTIVE',
   }) async {
+    if (PermissionService.instance.currentUserId != null &&
+        !PermissionService.instance.hasPermission(
+          PermissionCodes.studentCreate,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.studentCreate,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: departmentId,
+      );
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     final id = UuidUtils.generate();
@@ -105,6 +133,18 @@ class StudentRepository {
   }
 
   Future<void> update(Student student) async {
+    if (PermissionService.instance.currentUserId != null &&
+        !PermissionService.instance.hasPermission(
+          PermissionCodes.studentEdit,
+          departmentId: student.departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.studentEdit,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: student.departmentId,
+      );
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -136,6 +176,20 @@ class StudentRepository {
   }
 
   Future<void> softDelete(String id) async {
+    if (PermissionService.instance.currentUserId != null) {
+      final student = await getById(id);
+      if (!PermissionService.instance.hasPermission(
+        PermissionCodes.studentDelete,
+        departmentId: student?.departmentId,
+      )) {
+        throw PermissionDeniedException(
+          PermissionCodes.studentDelete,
+          userId: PermissionService.instance.currentUserId,
+          departmentId: student?.departmentId,
+        );
+      }
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(

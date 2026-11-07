@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
 class LeaveRepository {
@@ -57,6 +59,14 @@ class LeaveRepository {
   }
 
   Future<void> updateStatus(String id, LeaveStatus newStatus) async {
+    if (PermissionService.instance.currentUserId != null &&
+        !PermissionService.instance.hasPermission(PermissionCodes.leaveApprove)) {
+      throw PermissionDeniedException(
+        PermissionCodes.leaveApprove,
+        userId: PermissionService.instance.currentUserId,
+      );
+    }
+
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(

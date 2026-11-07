@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 class AddClassResult {
   const AddClassResult({
@@ -240,9 +241,9 @@ class _AddClassDialogState extends State<AddClassDialog> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (widget.departments.isNotEmpty) ...[
-                  DropdownButtonFormField<String>(
+                  AppDropdownButtonFormField<String>(
                     initialValue: _selectedDepartmentId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Department',
                       prefixIcon: Icon(Icons.apartment_rounded),
                     ),
@@ -275,9 +276,9 @@ class _AddClassDialogState extends State<AddClassDialog> {
                   const SizedBox(height: 12),
                 ],
                 if (widget.sessions.isNotEmpty) ...[
-                  DropdownButtonFormField<String>(
+                  AppDropdownButtonFormField<String>(
                     initialValue: _selectedSessionId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Academic Session',
                       prefixIcon: Icon(Icons.date_range_rounded),
                     ),
@@ -303,7 +304,7 @@ class _AddClassDialogState extends State<AddClassDialog> {
                       child: TextFormField(
                         controller: _programController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Program / Code',
                           hintText: 'e.g. CIT, LT, FW',
                           prefixIcon: Icon(Icons.school_outlined),
@@ -315,9 +316,10 @@ class _AddClassDialogState extends State<AddClassDialog> {
                     const SizedBox(width: 12),
                     Expanded(
                       flex: 4,
-                      child: DropdownButtonFormField<String>(
+                      child: AppDropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _selectedYear,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Current Year',
                           prefixIcon: Icon(Icons.timeline_rounded),
                         ),
@@ -325,7 +327,10 @@ class _AddClassDialogState extends State<AddClassDialog> {
                             .map(
                               (y) => DropdownMenuItem(
                                 value: y,
-                                child: Text(y),
+                                child: Text(
+                                  y,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             )
                             .toList(),
@@ -346,7 +351,7 @@ class _AddClassDialogState extends State<AddClassDialog> {
                   key: const Key('classNameField'),
                   controller: _nameController,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Display Class Name',
                     hintText: 'e.g. CIT-1st Year',
                     prefixIcon: Icon(Icons.class_outlined),
@@ -361,7 +366,7 @@ class _AddClassDialogState extends State<AddClassDialog> {
                         key: const Key('classSectionField'),
                         controller: _sectionController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Section',
                           hintText: 'e.g. A or Morning',
                           prefixIcon: Icon(Icons.segment_rounded),
@@ -376,7 +381,7 @@ class _AddClassDialogState extends State<AddClassDialog> {
                         controller: _roomController,
                         textInputAction: TextInputAction.done,
                         onFieldSubmitted: (_) => _submit(),
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Classroom',
                           hintText: 'e.g. Room 12',
                           prefixIcon: Icon(Icons.meeting_room_outlined),
@@ -522,7 +527,7 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                   key: const Key('teacherNameField'),
                   controller: _nameController,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Full name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
@@ -530,9 +535,9 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                 ),
                 const SizedBox(height: 12),
                 if (widget.departments.isNotEmpty) ...[
-                  DropdownButtonFormField<String>(
+                  AppDropdownButtonFormField<String>(
                     initialValue: _selectedDepartmentId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Department',
                       prefixIcon: Icon(Icons.apartment_rounded),
                     ),
@@ -541,7 +546,10 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                         .map(
                           (d) => DropdownMenuItem(
                             value: d.id,
-                            child: Text('${d.code} — ${d.name}'),
+                            child: Text(
+                              '${d.code} \u2014 ${d.name}',
+                              overflow: TextOverflow.ellipsis,
+                            )
                           ),
                         )
                         .toList(),
@@ -553,10 +561,10 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                 Row(
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<String>(
+                      child: AppDropdownButtonFormField<String>(
                         initialValue: _designation,
                         isExpanded: true,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Designation',
                           prefixIcon: Icon(Icons.badge_outlined),
                         ),
@@ -581,7 +589,7 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                       child: TextFormField(
                         controller: _employeeCodeController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Employee Code',
                           hintText: 'e.g. FAC-01',
                           prefixIcon: Icon(Icons.tag_rounded),
@@ -596,7 +604,7 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                   controller: _emailController,
                   textInputAction: TextInputAction.next,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Email',
                     hintText: 'e.g. teacher@institute.edu',
                     prefixIcon: Icon(Icons.email_outlined),
@@ -611,7 +619,7 @@ class _AddTeacherDialogState extends State<AddTeacherDialog> {
                         key: const Key('teacherUsernameField'),
                         controller: _usernameController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Username',
                           hintText: 'e.g. teacher01',
                           prefixIcon: Icon(Icons.alternate_email_rounded),
@@ -833,7 +841,7 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                 TextFormField(
                   controller: _nameController,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Full name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
@@ -841,9 +849,9 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                 ),
                 const SizedBox(height: 12),
                 if (widget.departments.isNotEmpty) ...[
-                  DropdownButtonFormField<String>(
+                  AppDropdownButtonFormField<String>(
                     initialValue: _selectedDepartmentId,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Department',
                       prefixIcon: Icon(Icons.apartment_rounded),
                     ),
@@ -852,7 +860,10 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                         .map(
                           (d) => DropdownMenuItem(
                             value: d.id,
-                            child: Text('${d.code} — ${d.name}'),
+                            child: Text(
+                              '${d.code} \u2014 ${d.name}',
+                              overflow: TextOverflow.ellipsis,
+                            )
                           ),
                         )
                         .toList(),
@@ -864,10 +875,10 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                 Row(
                   children: [
                     Expanded(
-                      child: DropdownButtonFormField<String>(
+                      child: AppDropdownButtonFormField<String>(
                         initialValue: _designation,
                         isExpanded: true,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Designation',
                           prefixIcon: Icon(Icons.badge_outlined),
                         ),
@@ -892,7 +903,7 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                       child: TextFormField(
                         controller: _employeeCodeController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Employee Code',
                           hintText: 'e.g. FAC-01',
                           prefixIcon: Icon(Icons.tag_rounded),
@@ -906,7 +917,7 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                   controller: _emailController,
                   textInputAction: TextInputAction.next,
                   keyboardType: TextInputType.emailAddress,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Email',
                     hintText: 'e.g. teacher@institute.edu',
                     prefixIcon: Icon(Icons.email_outlined),
@@ -920,7 +931,7 @@ class _EditTeacherDialogState extends State<EditTeacherDialog> {
                       child: TextFormField(
                         controller: _usernameController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Username',
                           hintText: 'e.g. teacher01',
                           prefixIcon: Icon(Icons.alternate_email_rounded),
@@ -1116,12 +1127,13 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
           child: SingleChildScrollView(
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 TextFormField(
                   key: const Key('studentNameField'),
                   controller: _nameController,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Full name',
                     prefixIcon: Icon(Icons.person_outline_rounded),
                   ),
@@ -1131,7 +1143,7 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
                 TextFormField(
                   controller: _fatherNameController,
                   textInputAction: TextInputAction.next,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Father name',
                     prefixIcon: Icon(Icons.family_restroom_rounded),
                   ),
@@ -1144,7 +1156,7 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
                         key: const Key('studentRollField'),
                         controller: _rollController,
                         textInputAction: TextInputAction.next,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Roll number',
                           hintText: 'e.g. 09A-21',
                           prefixIcon: Icon(Icons.badge_outlined),
@@ -1157,7 +1169,7 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
                       child: TextFormField(
                         controller: _regNoController,
                         textInputAction: TextInputAction.done,
-                        decoration: const InputDecoration(
+                        decoration: InputDecoration(
                           labelText: 'Registration No',
                           hintText: 'e.g. REG-09A-21',
                           prefixIcon: Icon(Icons.assignment_ind_outlined),
@@ -1167,11 +1179,11 @@ class _AddStudentDialogState extends State<AddStudentDialog> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
+                AppDropdownButtonFormField<String>(
                   key: const Key('studentClassField'),
                   initialValue: _classId,
                   isExpanded: true,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Class & Year',
                     prefixIcon: Icon(Icons.class_rounded),
                   ),
@@ -1266,8 +1278,8 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       title: const Text('Promote / Move Student'),
-      content: SizedBox(
-        width: 420,
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1277,9 +1289,9 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
+            AppDropdownButtonFormField<String>(
               initialValue: _selectedClassId,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Target Class',
                 prefixIcon: Icon(Icons.class_rounded),
               ),
@@ -1288,7 +1300,10 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
                   .map(
                     (c) => DropdownMenuItem(
                       value: c.id,
-                      child: Text(c.displayName),
+                      child: Text(
+                        c.displayName,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   )
                   .toList(),
@@ -1297,9 +1312,10 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
               },
             ),
             const SizedBox(height: 12),
-            DropdownButtonFormField<String>(
+            AppDropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _selectedYear,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Academic Year',
                 prefixIcon: Icon(Icons.timeline_rounded),
               ),
@@ -1307,7 +1323,10 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
                   .map(
                     (y) => DropdownMenuItem(
                       value: y,
-                      child: Text(y),
+                      child: Text(
+                        y,
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
                   )
                   .toList(),
@@ -1317,9 +1336,9 @@ class _PromoteStudentDialogState extends State<PromoteStudentDialog> {
             ),
             if (widget.sessions.isNotEmpty) ...[
               const SizedBox(height: 12),
-              DropdownButtonFormField<String>(
+              AppDropdownButtonFormField<String>(
                 initialValue: _selectedSessionId,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Target Academic Session',
                   prefixIcon: Icon(Icons.calendar_today_rounded),
                 ),
@@ -1407,7 +1426,7 @@ class _AddAcademicSessionDialogState extends State<AddAcademicSessionDialog> {
             children: [
               TextFormField(
                 controller: _nameController,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Session Name',
                   hintText: 'e.g. 2026-27',
                   prefixIcon: Icon(Icons.date_range_rounded),
@@ -1444,3 +1463,5 @@ String? _required(String? value) {
   }
   return null;
 }
+
+

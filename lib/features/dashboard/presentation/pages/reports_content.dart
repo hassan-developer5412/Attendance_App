@@ -6,6 +6,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Comprehensive Reports page offering 4 distinct views:
 /// 1. Student Report: Breakdown across all enrolled subjects
@@ -245,14 +246,13 @@ class _ReportsContentState extends State<ReportsContent>
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  DropdownButtonFormField<String>(
+                  AppDropdownButtonFormField<String>(
                     key: ValueKey('rep_stu_${selectedStudent.id}'),
                     initialValue: selectedStudent.id,
                     isExpanded: true,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Select Student',
                       prefixIcon: Icon(Icons.person_search_rounded),
-                      isDense: true,
                     ),
                     items: students
                         .map(
@@ -508,14 +508,13 @@ class _ReportsContentState extends State<ReportsContent>
                   Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('rep_dept_$_subjectReportDeptId'),
                           initialValue: _subjectReportDeptId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Department',
                             prefixIcon: Icon(Icons.apartment_rounded),
-                            isDense: true,
                           ),
                           items: departments
                               .map(
@@ -542,14 +541,13 @@ class _ReportsContentState extends State<ReportsContent>
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('rep_cls_$_subjectReportClassId'),
                           initialValue: _subjectReportClassId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Class',
                             prefixIcon: Icon(Icons.class_outlined),
-                            isDense: true,
                           ),
                           items: classes
                               .map(
@@ -582,7 +580,7 @@ class _ReportsContentState extends State<ReportsContent>
                     children: [
                       Expanded(
                         flex: 2,
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('rep_yr_$_subjectReportYear'),
                           initialValue: _subjectReportYear,
                           decoration: const InputDecoration(
@@ -608,14 +606,13 @@ class _ReportsContentState extends State<ReportsContent>
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('rep_sub_$_subjectReportSubjectId'),
                           initialValue: _subjectReportSubjectId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Subject',
                             prefixIcon: Icon(Icons.menu_book_rounded),
-                            isDense: true,
                           ),
                           items: (subjects.isNotEmpty
                                   ? subjects
@@ -796,14 +793,13 @@ class _ReportsContentState extends State<ReportsContent>
             ),
             child: Padding(
               padding: const EdgeInsets.all(14),
-              child: DropdownButtonFormField<String>(
+              child: AppDropdownButtonFormField<String>(
                 key: ValueKey('rep_cls_pick_${selectedClass.id}'),
                 initialValue: selectedClass.id,
                 isExpanded: true,
-                decoration: const InputDecoration(
+                decoration: InputDecoration(
                   labelText: 'Select Class & Year',
                   prefixIcon: Icon(Icons.class_rounded),
-                  isDense: true,
                 ),
                 items: classes
                     .map(

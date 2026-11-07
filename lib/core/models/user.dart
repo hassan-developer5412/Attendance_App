@@ -9,6 +9,8 @@ class User {
   User({
     String? id,
     required this.username,
+    this.rollNo,
+    this.employeeId,
     required this.displayName,
     required this.email,
     required this.role,
@@ -16,12 +18,26 @@ class User {
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
     this.isDeleted = false,
+    this.isDefaultPassword = false,
+    this.isSuspended = false,
+    this.suspendedAt,
+    this.suspendedReason,
+    this.failedLoginAttempts = 0,
+    this.lockedUntil,
+    this.passwordChangedAt,
+    this.lastLoginAt,
+    this.sessionExpiresAt,
+    this.authUserId,
   })  : id = id ?? UuidUtils.generate(),
         createdAt = createdAt ?? DateTime.now().toUtc(),
         updatedAt = updatedAt ?? DateTime.now().toUtc();
 
   final String id;
   final String username;
+  /// Roll number — alternate login identifier (students / staff).
+  final String? rollNo;
+  /// Employee ID — alternate login identifier (staff).
+  final String? employeeId;
   final String displayName;
   final String email;
   final UserRole role;
@@ -29,6 +45,32 @@ class User {
   final DateTime updatedAt;
   final SyncStatus syncStatus;
   final bool isDeleted;
+  /// Whether the account is still using its default password and must be
+  /// changed before the dashboard becomes accessible.
+  final bool isDefaultPassword;
+  /// Whether the account is suspended and must not be allowed to log in.
+  final bool isSuspended;
+  final String? suspendedAt;
+  final String? suspendedReason;
+  /// Consecutive failed password attempts since the last successful login.
+  final int failedLoginAttempts;
+  /// Account is locked until this instant (`null` when not locked).
+  final String? lockedUntil;
+  /// When the password was last changed (ISO-8601 UTC).
+  final String? passwordChangedAt;
+  /// When the user last logged in (ISO-8601 UTC).
+  final String? lastLoginAt;
+  /// Absolute session expiry (ISO-8601 UTC).
+  final String? sessionExpiresAt;
+  /// Linked Supabase Auth user id (nullable).
+  final String? authUserId;
+
+  /// True when [lockedUntil] is set and the lockout window has not elapsed.
+  bool get isLocked {
+    if (lockedUntil == null) return false;
+    final unlockAt = DateTime.tryParse(lockedUntil!)?.toUtc();
+    return unlockAt != null && DateTime.now().toUtc().isBefore(unlockAt);
+  }
 
   /// Creates a [User] from a database row map.
   ///
@@ -57,6 +99,18 @@ class User {
           : null,
       syncStatus: SyncStatus.fromString(map['sync_status'] as String?),
       isDeleted: (map['is_deleted'] as int? ?? 0) == 1,
+      isDefaultPassword: (map['is_default_password'] as int? ?? 0) == 1,
+      rollNo: map['roll_no'] as String?,
+      employeeId: map['employee_id'] as String?,
+      isSuspended: (map['is_suspended'] as int? ?? 0) == 1,
+      suspendedAt: map['suspended_at'] as String?,
+      suspendedReason: map['suspended_reason'] as String?,
+      failedLoginAttempts: (map['failed_login_attempts'] as int? ?? 0),
+      lockedUntil: map['locked_until'] as String?,
+      passwordChangedAt: map['password_changed_at'] as String?,
+      lastLoginAt: map['last_login_at'] as String?,
+      sessionExpiresAt: map['session_expires_at'] as String?,
+      authUserId: map['auth_user_id'] as String?,
     );
   }
 
@@ -74,6 +128,17 @@ class User {
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
       'is_deleted': isDeleted ? 1 : 0,
+      'roll_no': rollNo,
+      'employee_id': employeeId,
+      'is_suspended': isSuspended ? 1 : 0,
+      'suspended_at': suspendedAt,
+      'suspended_reason': suspendedReason,
+      'failed_login_attempts': failedLoginAttempts,
+      'locked_until': lockedUntil,
+      'password_changed_at': passwordChangedAt,
+      'last_login_at': lastLoginAt,
+      'session_expires_at': sessionExpiresAt,
+      'auth_user_id': authUserId,
     };
   }
 
@@ -118,10 +183,22 @@ class User {
     DateTime? updatedAt,
     SyncStatus? syncStatus,
     bool? isDeleted,
+    bool? isDefaultPassword,
+    bool? isSuspended,
+    String? suspendedAt,
+    String? suspendedReason,
+    int? failedLoginAttempts,
+    String? lockedUntil,
+    String? passwordChangedAt,
+    String? lastLoginAt,
+    String? sessionExpiresAt,
+    String? authUserId,
   }) {
     return User(
       id: id ?? this.id,
       username: username ?? this.username,
+      rollNo: rollNo ?? this.rollNo,
+      employeeId: employeeId ?? this.employeeId,
       displayName: displayName ?? this.displayName,
       email: email ?? this.email,
       role: role ?? this.role,
@@ -129,6 +206,17 @@ class User {
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,
       isDeleted: isDeleted ?? this.isDeleted,
+      isDefaultPassword: isDefaultPassword ?? this.isDefaultPassword,
+      isSuspended: isSuspended ?? this.isSuspended,
+      suspendedAt: suspendedAt ?? this.suspendedAt,
+      suspendedReason: suspendedReason ?? this.suspendedReason,
+      failedLoginAttempts:
+          failedLoginAttempts ?? this.failedLoginAttempts,
+      lockedUntil: lockedUntil ?? this.lockedUntil,
+      passwordChangedAt: passwordChangedAt ?? this.passwordChangedAt,
+      lastLoginAt: lastLoginAt ?? this.lastLoginAt,
+      sessionExpiresAt: sessionExpiresAt ?? this.sessionExpiresAt,
+      authUserId: authUserId ?? this.authUserId,
     );
   }
 

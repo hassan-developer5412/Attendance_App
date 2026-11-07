@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Leave management page backed by the database.
 class LeaveContent extends StatefulWidget {
@@ -381,11 +382,11 @@ class _ApplyLeaveDialogState extends State<_ApplyLeaveDialog> {
                   },
                 ),
                 const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
+                AppDropdownButtonFormField<String>(
                   initialValue: _leaveType,
-                  decoration: const InputDecoration(labelText: 'Leave type'),
+                  decoration: InputDecoration(labelText: 'Leave type'),
                   items: _leaveTypes
-                      .map((t) => DropdownMenuItem(value: t, child: Text(t)))
+                      .map((t) => DropdownMenuItem(value: t, child: Text(t, overflow: TextOverflow.ellipsis)))
                       .toList(),
                   onChanged: (value) {
                     if (value != null) _leaveType = value;

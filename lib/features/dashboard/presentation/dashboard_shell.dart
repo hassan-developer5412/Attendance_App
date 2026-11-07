@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
+import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/attendance_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/dashboard_content.dart';
@@ -12,13 +13,48 @@ import 'package:attendance_app/features/dashboard/presentation/pages/reports_con
 import 'package:attendance_app/features/dashboard/presentation/pages/settings_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/students_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/teachers_content.dart';
+import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
+import 'package:attendance_app/features/student_view/presentation/student_self_view_content.dart';
+import 'package:attendance_app/features/users/presentation/user_management_content.dart';
 
-/// Responsive dashboard shell with a left-side navigation menu and a
-/// right-side content area. On screens wider than [_kBreakpoint], the
-/// sidebar is permanently visible. On narrower screens it collapses to
-/// a hamburger-opened [Drawer].
+/// Responsive dashboard shell with role-aware menu visibility and permission guards.
+/// Inspects the logged-in user's role and RBAC grants to render appropriate navigation items.
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
+
+  /// Returns the permitted menu IDs for a given role according to RBAC layout policies.
+  static List<String> getMenuIdsForRole(UserRole role) {
+    if (role == UserRole.student) {
+      return const ['schedule', 'my_attendance'];
+    }
+    if (role == UserRole.teacher) {
+      return const ['dashboard', 'attendance', 'classes', 'students', 'leave'];
+    }
+    if (role == UserRole.hod) {
+      return const [
+        'dashboard',
+        'attendance',
+        'classes',
+        'teachers',
+        'students',
+        'user_management',
+        'leave',
+        'reports',
+      ];
+    }
+    return const [
+      'dashboard',
+      'attendance',
+      'classes',
+      'teachers',
+      'students',
+      'user_management',
+      'leave',
+      'reports',
+      'institute',
+      'settings',
+    ];
+  }
 
   @override
   State<DashboardShell> createState() => _DashboardShellState();
@@ -30,39 +66,215 @@ class _DashboardShellState extends State<DashboardShell> {
 
   int _selectedIndex = 0;
 
-  // Menu definitions
-  static const _menuItems = <_MenuItem>[
-    _MenuItem(icon: Icons.dashboard_rounded, label: 'Dashboard'),
-    _MenuItem(icon: Icons.fingerprint_rounded, label: 'Attendance'),
-    _MenuItem(icon: Icons.class_rounded, label: 'Classes'),
-    _MenuItem(icon: Icons.school_rounded, label: 'Teachers'),
-    _MenuItem(icon: Icons.groups_rounded, label: 'Students'),
-    _MenuItem(icon: Icons.event_busy_rounded, label: 'Leave Management'),
-    _MenuItem(icon: Icons.bar_chart_rounded, label: 'Reports'),
-    _MenuItem(icon: Icons.settings_rounded, label: 'Settings'),
-  ];
+  List<_MenuItem> _getItemsForUser(AuthStore authStore, RBACStore rbacStore) {
+    final role = authStore.currentUserRole ?? UserRole.teacher;
 
-  Widget _buildPage() {
-    switch (_selectedIndex) {
-      case 0:
-        return const DashboardContent();
-      case 1:
-        return const AttendanceContent();
-      case 2:
-        return const ClassesContent();
-      case 3:
-        return const TeachersContent();
-      case 4:
-        return const StudentsContent();
-      case 5:
-        return const LeaveContent();
-      case 6:
-        return const ReportsContent();
-      case 7:
-        return const SettingsContent();
-      default:
-        return const DashboardContent();
+    // 1. Student Role: Strictly self-view (Class schedule and personal attendance records)
+    if (role == UserRole.student) {
+      return [
+        _MenuItem(
+          id: 'schedule',
+          icon: Icons.schedule_rounded,
+          label: 'Class Schedule',
+          builder: () => const StudentSelfViewContent(initialTab: 0),
+        ),
+        _MenuItem(
+          id: 'my_attendance',
+          icon: Icons.fact_check_rounded,
+          label: 'My Attendance',
+          builder: () => const StudentSelfViewContent(initialTab: 1),
+        ),
+      ];
     }
+
+    // 2. Teacher Role: Classroom instruction & attendance marking
+    if (role == UserRole.teacher) {
+      return [
+        _MenuItem(
+          id: 'dashboard',
+          icon: Icons.dashboard_rounded,
+          label: 'Dashboard',
+          permission: PermissionCodes.dashboardView,
+          builder: () => const DashboardContent(),
+        ),
+        _MenuItem(
+          id: 'attendance',
+          icon: Icons.fingerprint_rounded,
+          label: 'Attendance',
+          permission: PermissionCodes.attendanceView,
+          builder: () => const AttendanceContent(),
+        ),
+        _MenuItem(
+          id: 'classes',
+          icon: Icons.class_rounded,
+          label: 'Classes',
+          permission: PermissionCodes.classManage,
+          builder: () => const ClassesContent(),
+        ),
+        _MenuItem(
+          id: 'students',
+          icon: Icons.groups_rounded,
+          label: 'Students',
+          permission: PermissionCodes.studentView,
+          builder: () => const StudentsContent(),
+        ),
+        _MenuItem(
+          id: 'leave',
+          icon: Icons.event_busy_rounded,
+          label: 'Leave Management',
+          permission: PermissionCodes.leaveView,
+          builder: () => const LeaveContent(),
+        ),
+      ];
+    }
+
+    // 3. HOD Role: Department academic authority + User account creation
+    if (role == UserRole.hod) {
+      return [
+        _MenuItem(
+          id: 'dashboard',
+          icon: Icons.dashboard_rounded,
+          label: 'Dashboard',
+          permission: PermissionCodes.dashboardView,
+          builder: () => const DashboardContent(),
+        ),
+        _MenuItem(
+          id: 'attendance',
+          icon: Icons.fingerprint_rounded,
+          label: 'Attendance',
+          permission: PermissionCodes.attendanceView,
+          builder: () => const AttendanceContent(),
+        ),
+        _MenuItem(
+          id: 'classes',
+          icon: Icons.class_rounded,
+          label: 'Classes',
+          permission: PermissionCodes.classManage,
+          builder: () => const ClassesContent(),
+        ),
+        _MenuItem(
+          id: 'teachers',
+          icon: Icons.school_rounded,
+          label: 'Teachers',
+          permission: PermissionCodes.teacherView,
+          builder: () => const TeachersContent(),
+        ),
+        _MenuItem(
+          id: 'students',
+          icon: Icons.groups_rounded,
+          label: 'Students',
+          permission: PermissionCodes.studentView,
+          builder: () => const StudentsContent(),
+        ),
+        _MenuItem(
+          id: 'user_management',
+          icon: Icons.manage_accounts_rounded,
+          label: 'User Management',
+          permission: PermissionCodes.userCreate,
+          builder: () => const UserManagementContent(),
+        ),
+        _MenuItem(
+          id: 'leave',
+          icon: Icons.event_busy_rounded,
+          label: 'Leave Management',
+          permission: PermissionCodes.leaveView,
+          builder: () => const LeaveContent(),
+        ),
+        _MenuItem(
+          id: 'reports',
+          icon: Icons.bar_chart_rounded,
+          label: 'Reports',
+          permission: PermissionCodes.reportView,
+          builder: () => const ReportsContent(),
+        ),
+      ];
+    }
+
+    // 4. Admin / Principal / VP: Full operational access
+    return [
+      _MenuItem(
+        id: 'dashboard',
+        icon: Icons.dashboard_rounded,
+        label: 'Dashboard',
+        permission: PermissionCodes.dashboardView,
+        builder: () => const DashboardContent(),
+      ),
+      _MenuItem(
+        id: 'attendance',
+        icon: Icons.fingerprint_rounded,
+        label: 'Attendance',
+        permission: PermissionCodes.attendanceView,
+        builder: () => const AttendanceContent(),
+      ),
+      _MenuItem(
+        id: 'classes',
+        icon: Icons.class_rounded,
+        label: 'Classes',
+        permission: PermissionCodes.classManage,
+        builder: () => const ClassesContent(),
+      ),
+      _MenuItem(
+        id: 'teachers',
+        icon: Icons.school_rounded,
+        label: 'Teachers',
+        permission: PermissionCodes.teacherView,
+        builder: () => const TeachersContent(),
+      ),
+      _MenuItem(
+        id: 'students',
+        icon: Icons.groups_rounded,
+        label: 'Students',
+        permission: PermissionCodes.studentView,
+        builder: () => const StudentsContent(),
+      ),
+      _MenuItem(
+        id: 'user_management',
+        icon: Icons.manage_accounts_rounded,
+        label: 'User & Staff Management',
+        permission: PermissionCodes.userView,
+        builder: () => const UserManagementContent(),
+      ),
+      _MenuItem(
+        id: 'role_management',
+        icon: Icons.admin_panel_settings_rounded,
+        label: 'Role Permissions',
+        permission: PermissionCodes.userManageRoles,
+        builder: () => const RoleManagementScreen(),
+      ),
+      _MenuItem(
+        id: 'leave',
+        icon: Icons.event_busy_rounded,
+        label: 'Leave Management',
+        permission: PermissionCodes.leaveView,
+        builder: () => const LeaveContent(),
+      ),
+      _MenuItem(
+        id: 'reports',
+        icon: Icons.bar_chart_rounded,
+        label: 'Reports',
+        permission: PermissionCodes.reportView,
+        builder: () => const ReportsContent(),
+      ),
+      _MenuItem(
+        id: 'settings',
+        icon: Icons.settings_rounded,
+        label: 'Settings',
+        permission: PermissionCodes.settingManage,
+        builder: () => const SettingsContent(),
+      ),
+    ];
+  }
+
+  List<_MenuItem> _getActiveItems(BuildContext context) {
+    final authStore = context.watch<AuthStore>();
+    final rbacStore = context.watch<RBACStore>();
+    final allItems = _getItemsForUser(authStore, rbacStore);
+
+    return allItems.where((item) {
+      if (item.permission == null) return true;
+      if (!rbacStore.isAuthenticated) return true;
+      return rbacStore.hasPermission(item.permission!);
+    }).toList();
   }
 
   Future<void> _confirmLogout() async {
@@ -100,12 +312,16 @@ class _DashboardShellState extends State<DashboardShell> {
   // -----------------------------------------------------------------------
   // Sidebar content (shared between permanent sidebar and Drawer)
   // -----------------------------------------------------------------------
-  Widget _buildSidebarContent({required bool isDrawer}) {
+  Widget _buildSidebarContent({
+    required bool isDrawer,
+    required List<_MenuItem> items,
+    required int safeIndex,
+  }) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final authStore = context.watch<AuthStore>();
     final displayName = authStore.currentUser?.displayName ?? 'User';
-    final role = authStore.currentUser?.role.name ?? 'admin';
+    final role = authStore.currentUser?.role.name ?? 'user';
 
     return Column(
       children: [
@@ -187,16 +403,16 @@ class _DashboardShellState extends State<DashboardShell> {
                       ),
                     ),
                     Text(
-                      role[0].toUpperCase() + role.substring(1),
+                      role.toUpperCase(),
                       style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
+                        color: colorScheme.primary,
+                        fontWeight: FontWeight.bold,
                         fontSize: 11,
                       ),
                     ),
                   ],
                 ),
               ),
-              Icon(Icons.unfold_more_rounded, size: 18, color: colorScheme.onSurfaceVariant),
             ],
           ),
         ),
@@ -205,10 +421,11 @@ class _DashboardShellState extends State<DashboardShell> {
         Expanded(
           child: ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            itemCount: _menuItems.length,
+            itemCount: items.length,
             itemBuilder: (context, index) {
-              final item = _menuItems[index];
-              final isSelected = _selectedIndex == index;
+              final item = items[index];
+              final isSelected = safeIndex == index;
+
               return Padding(
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 child: Material(
@@ -298,17 +515,23 @@ class _DashboardShellState extends State<DashboardShell> {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final activeItems = _getActiveItems(context);
+    final safeIndex = activeItems.isEmpty
+        ? 0
+        : _selectedIndex.clamp(0, activeItems.length - 1);
+
+    final currentItem = activeItems.isNotEmpty ? activeItems[safeIndex] : null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isWide = constraints.maxWidth >= _kBreakpoint;
 
         if (isWide) {
-          // ----- Desktop / Tablet: permanent sidebar -----
+          // Desktop / Tablet layout
           return Scaffold(
             body: Row(
               children: [
-                // Left Sidebar
+                // Permanent Sidebar
                 Container(
                   width: _kSidebarWidth,
                   decoration: BoxDecoration(
@@ -319,14 +542,20 @@ class _DashboardShellState extends State<DashboardShell> {
                       ),
                     ),
                   ),
-                  child: SafeArea(child: _buildSidebarContent(isDrawer: false)),
+                  child: SafeArea(
+                    child: _buildSidebarContent(
+                      isDrawer: false,
+                      items: activeItems,
+                      safeIndex: safeIndex,
+                    ),
+                  ),
                 ),
-                // Right Content
+                // Main Content Area
                 Expanded(
                   child: Scaffold(
                     appBar: AppBar(
                       title: Text(
-                        _menuItems[_selectedIndex].label,
+                        currentItem?.label ?? 'Dashboard',
                         style: const TextStyle(fontWeight: FontWeight.bold),
                       ),
                       centerTitle: false,
@@ -336,8 +565,10 @@ class _DashboardShellState extends State<DashboardShell> {
                     body: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 250),
                       child: KeyedSubtree(
-                        key: ValueKey(_selectedIndex),
-                        child: _buildPage(),
+                        key: ValueKey(currentItem?.id ?? 'default'),
+                        child: currentItem != null
+                            ? currentItem.builder()
+                            : const DashboardContent(),
                       ),
                     ),
                   ),
@@ -347,11 +578,11 @@ class _DashboardShellState extends State<DashboardShell> {
           );
         }
 
-        // ----- Mobile: hamburger drawer -----
+        // Mobile drawer layout
         return Scaffold(
           appBar: AppBar(
             title: Text(
-              _menuItems[_selectedIndex].label,
+              currentItem?.label ?? 'Dashboard',
               style: const TextStyle(fontWeight: FontWeight.bold),
             ),
             centerTitle: false,
@@ -361,14 +592,22 @@ class _DashboardShellState extends State<DashboardShell> {
           drawer: SizedBox(
             width: _kSidebarWidth,
             child: Drawer(
-              child: SafeArea(child: _buildSidebarContent(isDrawer: true)),
+              child: SafeArea(
+                child: _buildSidebarContent(
+                  isDrawer: true,
+                  items: activeItems,
+                  safeIndex: safeIndex,
+                ),
+              ),
             ),
           ),
           body: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             child: KeyedSubtree(
-              key: ValueKey(_selectedIndex),
-              child: _buildPage(),
+              key: ValueKey(currentItem?.id ?? 'default'),
+              child: currentItem != null
+                  ? currentItem.builder()
+                  : const DashboardContent(),
             ),
           ),
         );
@@ -377,10 +616,19 @@ class _DashboardShellState extends State<DashboardShell> {
   }
 }
 
-/// Simple data class for menu items.
+/// Menu item descriptor with dynamic widget builder.
 class _MenuItem {
-  const _MenuItem({required this.icon, required this.label});
+  const _MenuItem({
+    required this.id,
+    required this.icon,
+    required this.label,
+    required this.builder,
+    this.permission,
+  });
 
+  final String id;
   final IconData icon;
   final String label;
+  final Widget Function() builder;
+  final String? permission;
 }

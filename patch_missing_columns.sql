@@ -209,6 +209,16 @@ ALTER TABLE attendance_records ADD COLUMN IF NOT EXISTS institute_id TEXT;
 ALTER TABLE leave_requests ADD COLUMN IF NOT EXISTS institute_id TEXT;
 ALTER TABLE lab_inventory ADD COLUMN IF NOT EXISTS institute_id TEXT;
 
+-- profiles (Step 4): idempotent create for existing projects. Safe to re-run.
+CREATE TABLE IF NOT EXISTS public.profiles (
+  id            UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
+  institute_id  TEXT NOT NULL DEFAULT 'default_institute',
+  role          TEXT NOT NULL DEFAULT 'admin',
+  created_at    TEXT NOT NULL DEFAULT (now()::text),
+  updated_at    TEXT NOT NULL DEFAULT (now()::text),
+  is_deleted    BOOLEAN NOT NULL DEFAULT false
+);
+
 -- Tell PostgREST to reload its schema cache so the new columns are usable
 -- immediately without waiting for the periodic refresh.
 NOTIFY pgrst, 'reload schema';

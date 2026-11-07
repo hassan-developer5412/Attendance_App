@@ -5,7 +5,10 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
+import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/state/rbac_store.dart';
+import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Subject-based Attendance page following the strict academic hierarchy:
 /// Department → Academic Session → Class → Year → Subject → Date → Student List → Mark Attendance.
@@ -199,6 +202,26 @@ class _AttendanceContentState extends State<AttendanceContent>
 
     final instituteStore = context.read<InstituteStore>();
     final attendanceStore = context.read<AttendanceStore>();
+    final authStore = context.read<AuthStore>();
+    final rbacStore = context.read<RBACStore>();
+
+    final canOverride = authStore.currentUserRole == UserRole.admin ||
+        authStore.currentUserRole == UserRole.hod ||
+        rbacStore.hasPermission(PermissionCodes.attendanceCorrectAfterDeadline);
+
+    if (attendanceStore.isSessionLocked && !canOverride) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Session Locked: Edits past the 24-hour deadline require HOD or Administrator override.',
+          ),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     final students = _getTargetStudents();
     final subject = instituteStore.subjectById(_selectedSubjectId);
 
@@ -216,13 +239,16 @@ class _AttendanceContentState extends State<AttendanceContent>
         subjectCode: subject?.code ?? '',
         teacherId: subject?.teacherId,
         remarks: _remarksController.text.trim(),
+        isOverride: canOverride,
       );
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Attendance recorded for ${subject?.name ?? 'Subject'} on ${DateFormat('d MMM yyyy').format(_selectedDate)}',
+            attendanceStore.isSessionLocked
+                ? 'Attendance updated (HOD/Admin Override) for ${subject?.name ?? 'Subject'} on ${DateFormat('d MMM yyyy').format(_selectedDate)}'
+                : 'Attendance recorded for ${subject?.name ?? 'Subject'} on ${DateFormat('d MMM yyyy').format(_selectedDate)}',
           ),
           backgroundColor: Colors.green.shade700,
           behavior: SnackBarBehavior.floating,
@@ -291,6 +317,14 @@ class _AttendanceContentState extends State<AttendanceContent>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final authStore = context.watch<AuthStore>();
+    final rbacStore = context.watch<RBACStore>();
+    final attendanceStore = context.watch<AttendanceStore>();
+
+    final canOverride = authStore.currentUserRole == UserRole.admin ||
+        authStore.currentUserRole == UserRole.hod ||
+        rbacStore.hasPermission(PermissionCodes.attendanceCorrectAfterDeadline);
+    final isLocked = attendanceStore.isSessionLocked;
 
     return SafeArea(
       child: Column(
@@ -308,11 +342,60 @@ class _AttendanceContentState extends State<AttendanceContent>
                     Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'Subject Attendance',
-                          style: theme.textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
+                        Row(
+                          children: [
+                            Text(
+                              'Subject Attendance',
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            if (isLocked) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: (canOverride ? Colors.amber : Colors.red)
+                                      .withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color: (canOverride
+                                            ? Colors.amber.shade700
+                                            : Colors.red)
+                                        .withValues(alpha: 0.4),
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      canOverride
+                                          ? Icons.admin_panel_settings_rounded
+                                          : Icons.lock_rounded,
+                                      size: 14,
+                                      color: canOverride
+                                          ? Colors.amber.shade900
+                                          : Colors.red.shade900,
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      canOverride
+                                          ? 'Locked (HOD/Admin Override)'
+                                          : 'Locked',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: canOverride
+                                            ? Colors.amber.shade900
+                                            : Colors.red.shade900,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -325,21 +408,56 @@ class _AttendanceContentState extends State<AttendanceContent>
                       ],
                     ),
                     if (_tabController.index == 0)
-                      FilledButton.icon(
-                        key: const Key('saveAttendanceHeaderButton'),
-                        onPressed: _isSaving ? null : _saveAttendance,
-                        icon: _isSaving
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : const Icon(Icons.check_circle_outline_rounded),
-                        label: Text(_isSaving ? 'Saving...' : 'Save Attendance'),
-                      ),
+                      if (isLocked && !canOverride)
+                        FilledButton.icon(
+                          key: const Key('saveAttendanceHeaderButton'),
+                          onPressed: null,
+                          icon: const Icon(Icons.lock_rounded, size: 16),
+                          label: const Text('Locked (Past 24h Deadline)'),
+                          style: FilledButton.styleFrom(
+                            disabledBackgroundColor: Colors.red.shade100,
+                            disabledForegroundColor: Colors.red.shade800,
+                          ),
+                        )
+                      else if (isLocked && canOverride)
+                        FilledButton.icon(
+                          key: const Key('saveAttendanceHeaderButton'),
+                          onPressed: _isSaving ? null : _saveAttendance,
+                          icon: _isSaving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.admin_panel_settings_rounded,
+                                  size: 18),
+                          label: Text(_isSaving
+                              ? 'Saving...'
+                              : 'Save (HOD/Admin Override)'),
+                          style: FilledButton.styleFrom(
+                            backgroundColor: Colors.amber.shade900,
+                          ),
+                        )
+                      else
+                        FilledButton.icon(
+                          key: const Key('saveAttendanceHeaderButton'),
+                          onPressed: _isSaving ? null : _saveAttendance,
+                          icon: _isSaving
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                    color: Colors.white,
+                                  ),
+                                )
+                              : const Icon(Icons.check_circle_outline_rounded),
+                          label:
+                              Text(_isSaving ? 'Saving...' : 'Save Attendance'),
+                        ),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -390,6 +508,14 @@ class _AttendanceContentState extends State<AttendanceContent>
   Widget _buildMarkAttendanceTab(ThemeData theme, ColorScheme colorScheme) {
     final instituteStore = context.watch<InstituteStore>();
     final attendanceStore = context.watch<AttendanceStore>();
+    final authStore = context.watch<AuthStore>();
+    final rbacStore = context.watch<RBACStore>();
+
+    final canOverride = authStore.currentUserRole == UserRole.admin ||
+        authStore.currentUserRole == UserRole.hod ||
+        rbacStore.hasPermission(PermissionCodes.attendanceCorrectAfterDeadline);
+    final isLocked = attendanceStore.isSessionLocked;
+    final isEditable = !isLocked || canOverride;
 
     final departments = instituteStore.activeDepartments;
     final sessions = instituteStore.academicSessions;
@@ -449,14 +575,13 @@ class _AttendanceContentState extends State<AttendanceContent>
                   Row(
                     children: [
                       Expanded(
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('dept_$_selectedDepartmentId'),
                           initialValue: _selectedDepartmentId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Department',
                             prefixIcon: Icon(Icons.apartment_rounded),
-                            isDense: true,
                           ),
                           items: departments
                               .map(
@@ -479,14 +604,13 @@ class _AttendanceContentState extends State<AttendanceContent>
                       ),
                       const SizedBox(width: 12),
                       Expanded(
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('sess_$_selectedSessionId'),
                           initialValue: _selectedSessionId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Academic Session',
                             prefixIcon: Icon(Icons.date_range_rounded),
-                            isDense: true,
                           ),
                           items: sessions
                               .map(
@@ -515,14 +639,13 @@ class _AttendanceContentState extends State<AttendanceContent>
                     children: [
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('cls_$_selectedClassId'),
                           initialValue: _selectedClassId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Class',
                             prefixIcon: Icon(Icons.class_outlined),
-                            isDense: true,
                           ),
                           items: availableClasses
                               .map(
@@ -552,13 +675,12 @@ class _AttendanceContentState extends State<AttendanceContent>
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 2,
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('yr_$_selectedYear'),
                           initialValue: _selectedYear,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Year',
                             prefixIcon: Icon(Icons.timeline_rounded),
-                            isDense: true,
                           ),
                           items: AcademicYears.labels
                               .map(
@@ -586,14 +708,13 @@ class _AttendanceContentState extends State<AttendanceContent>
                     children: [
                       Expanded(
                         flex: 3,
-                        child: DropdownButtonFormField<String>(
+                        child: AppDropdownButtonFormField<String>(
                           key: ValueKey('sub_$_selectedSubjectId'),
                           initialValue: _selectedSubjectId,
                           isExpanded: true,
-                          decoration: const InputDecoration(
+                          decoration: InputDecoration(
                             labelText: 'Subject',
                             prefixIcon: Icon(Icons.menu_book_rounded),
-                            isDense: true,
                           ),
                           items: (availableSubjects.isNotEmpty
                                   ? availableSubjects
@@ -701,8 +822,10 @@ class _AttendanceContentState extends State<AttendanceContent>
                           spacing: 8,
                           children: [
                             OutlinedButton.icon(
-                              onPressed: () =>
-                                  attendanceStore.markAll(AttendanceStatus.present),
+                              onPressed: isEditable
+                                  ? () => attendanceStore
+                                      .markAll(AttendanceStatus.present)
+                                  : null,
                               icon: const Icon(Icons.check_circle_outline,
                                   color: Colors.green, size: 18),
                               label: const Text('All Present'),
@@ -711,8 +834,10 @@ class _AttendanceContentState extends State<AttendanceContent>
                               ),
                             ),
                             OutlinedButton.icon(
-                              onPressed: () =>
-                                  attendanceStore.markAll(AttendanceStatus.absent),
+                              onPressed: isEditable
+                                  ? () => attendanceStore
+                                      .markAll(AttendanceStatus.absent)
+                                  : null,
                               icon: const Icon(Icons.cancel_outlined,
                                   color: Colors.red, size: 18),
                               label: const Text('All Absent'),
@@ -728,11 +853,15 @@ class _AttendanceContentState extends State<AttendanceContent>
                     // Topic Covered / Remarks field
                     TextField(
                       controller: _remarksController,
-                      decoration: const InputDecoration(
+                      readOnly: !isEditable,
+                      decoration: InputDecoration(
                         labelText: 'Topic Covered / Session Remarks (Optional)',
                         hintText: 'e.g. Chapter 3: Leather Tanning Processes',
-                        prefixIcon: Icon(Icons.edit_note_rounded),
+                        prefixIcon: const Icon(Icons.edit_note_rounded),
                         isDense: true,
+                        suffixIcon: !isEditable
+                            ? const Icon(Icons.lock_rounded, size: 16)
+                            : null,
                       ),
                       onChanged: (val) => attendanceStore.updateRemarks(val),
                     ),
@@ -742,11 +871,94 @@ class _AttendanceContentState extends State<AttendanceContent>
             ),
             const SizedBox(height: 12),
 
-            // Previously saved session notice
-            if (attendanceStore.isPreviouslySaved)
+            // Lock / Override / Saved session notice banners
+            if (isLocked && !canOverride)
               Container(
                 margin: const EdgeInsets.only(bottom: 12),
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.red.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.red.shade300),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.lock_rounded,
+                        color: Colors.red.shade800, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Session Locked (Deadline Expired)',
+                            style: TextStyle(
+                              color: Colors.red.shade900,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'This attendance session was created more than 24 hours ago. Modifications are locked for teachers. Contact your HOD or Administrator to request corrections.',
+                            style: TextStyle(
+                              color: Colors.red.shade800,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (isLocked && canOverride)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                decoration: BoxDecoration(
+                  color: Colors.amber.shade50,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.amber.shade400),
+                ),
+                child: Row(
+                  children: [
+                    Icon(Icons.admin_panel_settings_rounded,
+                        color: Colors.amber.shade900, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Locked Session — HOD/Admin Override Active',
+                            style: TextStyle(
+                              color: Colors.amber.shade900,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'This session is past the 24-hour editing deadline. You hold administrative authority to correct and update this attendance record.',
+                            style: TextStyle(
+                              color: Colors.amber.shade900,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (attendanceStore.isPreviouslySaved)
+              Container(
+                margin: const EdgeInsets.only(bottom: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                 decoration: BoxDecoration(
                   color: Colors.green.shade50,
                   borderRadius: BorderRadius.circular(8),
@@ -865,6 +1077,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                             student.id,
                             currentStatus,
                             attendanceStore,
+                            isEditable: isEditable,
                           ),
                         ],
                       ),
@@ -881,8 +1094,9 @@ class _AttendanceContentState extends State<AttendanceContent>
   Widget _buildStatusToggle(
     String studentId,
     AttendanceStatus currentStatus,
-    AttendanceStore attendanceStore,
-  ) {
+    AttendanceStore attendanceStore, {
+    bool isEditable = true,
+  }) {
     return SegmentedButton<AttendanceStatus>(
       showSelectedIcon: false,
       segments: const [
@@ -908,11 +1122,13 @@ class _AttendanceContentState extends State<AttendanceContent>
         ),
       ],
       selected: {currentStatus},
-      onSelectionChanged: (newSelection) {
-        if (newSelection.isNotEmpty) {
-          attendanceStore.setStatus(studentId, newSelection.first);
-        }
-      },
+      onSelectionChanged: isEditable
+          ? (newSelection) {
+              if (newSelection.isNotEmpty) {
+                attendanceStore.setStatus(studentId, newSelection.first);
+              }
+            }
+          : null,
       style: ButtonStyle(
         visualDensity: VisualDensity.compact,
         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -961,14 +1177,13 @@ class _AttendanceContentState extends State<AttendanceContent>
               child: Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<String>(
+                    child: AppDropdownButtonFormField<String>(
                       key: ValueKey('hist_cls_$_selectedClassId'),
                       initialValue: _selectedClassId,
                       isExpanded: true,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Filter by Class',
                         prefixIcon: Icon(Icons.class_outlined),
-                        isDense: true,
                       ),
                       items: classes
                           .map(
@@ -995,14 +1210,13 @@ class _AttendanceContentState extends State<AttendanceContent>
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: DropdownButtonFormField<String>(
+                    child: AppDropdownButtonFormField<String>(
                       key: ValueKey('hist_sub_${_historySubjectId ?? _selectedSubjectId}'),
                       initialValue: _historySubjectId ?? _selectedSubjectId,
                       isExpanded: true,
-                      decoration: const InputDecoration(
+                      decoration: InputDecoration(
                         labelText: 'Subject',
                         prefixIcon: Icon(Icons.menu_book_rounded),
-                        isDense: true,
                       ),
                       items: subjects
                           .map(
@@ -1074,6 +1288,25 @@ class _AttendanceContentState extends State<AttendanceContent>
                 final formattedDate = parsedDate != null
                     ? DateFormat('EEEE, d MMMM yyyy').format(parsedDate)
                     : dateStr;
+
+                final createdAtStr = session['createdAt'] as String?;
+                DateTime? createdDate;
+                if (createdAtStr != null) {
+                  createdDate = DateTime.tryParse(createdAtStr)?.toUtc();
+                } else if (parsedDate != null) {
+                  createdDate = parsedDate.toUtc();
+                }
+                final bool isPastDeadline = createdDate != null &&
+                    DateTime.now().toUtc().difference(createdDate) >
+                        const Duration(hours: 24);
+
+                final authStore = context.watch<AuthStore>();
+                final rbacStore = context.watch<RBACStore>();
+                final canOverride = authStore.currentUserRole == UserRole.admin ||
+                    authStore.currentUserRole == UserRole.hod ||
+                    rbacStore.hasPermission(
+                        PermissionCodes.attendanceCorrectAfterDeadline);
+
                 final rate = (session['attendanceRate'] as num?)?.toDouble() ?? 0.0;
                 final total = session['totalMarked'] ?? 0;
                 final present = session['presentCount'] ?? 0;
@@ -1107,6 +1340,39 @@ class _AttendanceContentState extends State<AttendanceContent>
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
+                                if (isPastDeadline) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 7, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color:
+                                          Colors.red.withValues(alpha: 0.12),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color: Colors.red
+                                            .withValues(alpha: 0.35),
+                                      ),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.lock_rounded,
+                                            size: 12,
+                                            color: Colors.red.shade800),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'Locked',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.red.shade800,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                             Container(
@@ -1172,8 +1438,32 @@ class _AttendanceContentState extends State<AttendanceContent>
                           alignment: Alignment.centerRight,
                           child: TextButton.icon(
                             onPressed: () => _editSessionFromHistory(session),
-                            icon: const Icon(Icons.edit_calendar_rounded, size: 16),
-                            label: const Text('Edit / Load Session'),
+                            icon: Icon(
+                              isPastDeadline
+                                  ? (canOverride
+                                      ? Icons.lock_open_rounded
+                                      : Icons.visibility_outlined)
+                                  : Icons.edit_calendar_rounded,
+                              size: 16,
+                              color: isPastDeadline && canOverride
+                                  ? Colors.amber.shade900
+                                  : null,
+                            ),
+                            label: Text(
+                              isPastDeadline
+                                  ? (canOverride
+                                      ? 'Override & Edit'
+                                      : 'View Session (Locked)')
+                                  : 'Edit / Load Session',
+                              style: TextStyle(
+                                color: isPastDeadline && canOverride
+                                    ? Colors.amber.shade900
+                                    : null,
+                                fontWeight: isPastDeadline && canOverride
+                                    ? FontWeight.bold
+                                    : null,
+                              ),
+                            ),
                             style: TextButton.styleFrom(
                               visualDensity: VisualDensity.compact,
                             ),

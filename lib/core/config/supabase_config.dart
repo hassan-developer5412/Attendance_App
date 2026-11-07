@@ -25,6 +25,7 @@ class SupabaseConfig {
       _defineKey.isNotEmpty ? _defineKey : _fallbackKey;
 
   /// Whether usable credentials are present at all.
+  /// 
   static bool get isConfigured =>
       supabaseUrl.trim().isNotEmpty && supabaseAnonKey.trim().isNotEmpty;
 

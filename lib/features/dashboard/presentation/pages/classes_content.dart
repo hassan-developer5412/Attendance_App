@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/subjects_content.dart';
 
@@ -134,10 +136,14 @@ class _ClassesContentState extends State<ClassesContent> {
                     ),
                   ),
                 ),
-                FilledButton.icon(
-                  onPressed: () => _showAddDialog(store),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add class'),
+                PermissionGuard(
+                  permission: PermissionCodes.classManage,
+                  fallback: const SizedBox.shrink(),
+                  child: FilledButton.icon(
+                    onPressed: () => _showAddDialog(store),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add class'),
+                  ),
                 ),
               ],
             ),
@@ -261,13 +267,18 @@ class _ClassesContentState extends State<ClassesContent> {
                             trailing: Row(
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                IconButton(
-                                  tooltip: 'Delete class',
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: colorScheme.error,
+                                PermissionGuard(
+                                  permission: PermissionCodes.classManage,
+                                  fallback: const SizedBox.shrink(),
+                                  child: IconButton(
+                                    tooltip: 'Delete class',
+                                    icon: Icon(
+                                      Icons.delete_outline_rounded,
+                                      color: colorScheme.error,
+                                    ),
+                                    onPressed: () =>
+                                        _confirmDelete(store, item),
                                   ),
-                                  onPressed: () => _confirmDelete(store, item),
                                 ),
                                 Icon(
                                   Icons.chevron_right_rounded,

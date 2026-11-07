@@ -4,6 +4,9 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
+import 'package:attendance_app/core/widgets/themed_dropdown.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 
 /// Student roster with admin add, promote/move, and delete actions.
 /// Displays academic context: Department, Academic Session, Class Name, and Current Year (e.g. CIT-3rd Year).
@@ -189,10 +192,13 @@ class _StudentsContentState extends State<StudentsContent> {
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                FilledButton.icon(
-                  onPressed: () => _showAddDialog(store),
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Add student'),
+                PermissionGuard(
+                  permission: PermissionCodes.studentCreate,
+                  child: FilledButton.icon(
+                    onPressed: () => _showAddDialog(store),
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Add student'),
+                  ),
                 ),
               ],
             ),
@@ -232,13 +238,12 @@ class _StudentsContentState extends State<StudentsContent> {
                 const SizedBox(width: 12),
                 Expanded(
                   flex: 2,
-                  child: DropdownButtonFormField<String?>(
+                  child: AppDropdownButtonFormField<String?>(
                     initialValue: _filterClassId,
                     isExpanded: true,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Class',
                       prefixIcon: Icon(Icons.class_outlined),
-                      isDense: true,
                     ),
                     items: [
                       const DropdownMenuItem<String?>(
@@ -385,23 +390,33 @@ class _StudentsContentState extends State<StudentsContent> {
                                     ],
                                   ),
                                 ),
-                                IconButton(
-                                  tooltip: 'Promote / Change Year',
-                                  icon: Icon(
-                                    Icons.upgrade_rounded,
-                                    color: colorScheme.primary,
+                                PermissionGuard(
+                                  permission: PermissionCodes.studentEdit,
+                                  departmentId: student.departmentId,
+                                  fallback: const SizedBox.shrink(),
+                                  child: IconButton(
+                                    tooltip: 'Promote / Change Year',
+                                    icon: Icon(
+                                      Icons.upgrade_rounded,
+                                      color: colorScheme.primary,
+                                    ),
+                                    onPressed: () =>
+                                        _showPromoteDialog(store, student),
                                   ),
-                                  onPressed: () =>
-                                      _showPromoteDialog(store, student),
                                 ),
-                                IconButton(
-                                  tooltip: 'Delete student',
-                                  icon: Icon(
-                                    Icons.delete_outline_rounded,
-                                    color: colorScheme.error,
+                                PermissionGuard(
+                                  permission: PermissionCodes.studentDelete,
+                                  departmentId: student.departmentId,
+                                  fallback: const SizedBox.shrink(),
+                                  child: IconButton(
+                                    tooltip: 'Delete student',
+                                    icon: Icon(
+                                      Icons.delete_outline_rounded,
+                                      color: colorScheme.error,
+                                    ),
+                                    onPressed: () =>
+                                        _confirmDelete(store, student),
                                   ),
-                                  onPressed: () =>
-                                      _confirmDelete(store, student),
                                 ),
                               ],
                             ),

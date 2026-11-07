@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
+import 'package:attendance_app/features/auth/presentation/password_change_screen.dart';
 import 'package:attendance_app/features/home/presentation/home_screen.dart';
 
 /// Professional Login Screen backed by database authentication.
@@ -16,7 +18,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
 
-  late final TextEditingController _usernameController;
+  late final TextEditingController _identifierController;
   late final TextEditingController _passwordController;
 
   bool _isPasswordVisible = false;
@@ -24,39 +26,36 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  // Forgot-password (OTP recovery) flow state
+  int _resetStage = 0; // 0: ask email, 1: enter OTP + new password
+  String? _resetError;
+  bool _resetSending = false;
+  bool _resetSubmitting = false;
+  late final TextEditingController _resetEmailController;
+  late final TextEditingController _resetOtpController;
+  late final TextEditingController _resetPasswordController;
+  late final TextEditingController _resetConfirmController;
+
   @override
   void initState() {
     super.initState();
-    _usernameController = TextEditingController(
-      text: AppConstants.defaultAdminUsername,
-    );
-    _passwordController = TextEditingController(
-      text: AppConstants.defaultAdminPassword,
-    );
+    _identifierController = TextEditingController();
+    _passwordController = TextEditingController();
+    _resetEmailController = TextEditingController();
+    _resetOtpController = TextEditingController();
+    _resetPasswordController = TextEditingController();
+    _resetConfirmController = TextEditingController();
   }
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _identifierController.dispose();
     _passwordController.dispose();
+    _resetEmailController.dispose();
+    _resetOtpController.dispose();
+    _resetPasswordController.dispose();
+    _resetConfirmController.dispose();
     super.dispose();
-  }
-
-  void _resetDefaultCredentials() {
-    setState(() {
-      _usernameController.text = AppConstants.defaultAdminUsername;
-      _passwordController.text = AppConstants.defaultAdminPassword;
-      _errorMessage = null;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'Default credentials filled (${AppConstants.defaultAdminUsername} / ${AppConstants.defaultAdminPassword})',
-        ),
-        duration: const Duration(seconds: 2),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
   }
 
   Future<void> _handleLogin() async {
@@ -64,13 +63,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!_formKey.currentState!.validate()) return;
 
-    final username = _usernameController.text.trim();
     final password = _passwordController.text;
 
     setState(() => _isLoading = true);
 
+    final identifier = _identifierController.text.trim();
     final authStore = context.read<AuthStore>();
-    final user = await authStore.login(username, password);
+    final user = await authStore.login(identifier, password);
 
     if (!mounted) return;
 
@@ -85,18 +84,243 @@ class _LoginScreenState extends State<LoginScreen> {
         ),
       );
 
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const HomeScreen(),
-        ),
-      );
+      if (!mounted) return;
+
+      // Default-password accounts must change their password before the
+      // dashboard becomes accessible.
+      if (authStore.requirePasswordChange) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => const PasswordChangeScreen(),
+          ),
+        );
+      } else {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => const HomeScreen(),
+          ),
+        );
+      }
     } else {
+      if (kDebugMode && identifier.toLowerCase() == 'admin') {
+        final messenger = ScaffoldMessenger.of(context);
+        final navigator = Navigator.of(context);
+        final devUser = await authStore.devBypassLogin();
+        if (!mounted) return;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('⚡ Signed in as ${devUser.displayName} (Dev Bypass)'),
+            backgroundColor: Colors.teal.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        navigator.pushReplacement(
+          MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+        );
+        return;
+      }
       setState(() {
-        _errorMessage =
-            'Invalid username or password. (Default: ${AppConstants.defaultAdminUsername} / ${AppConstants.defaultAdminPassword})';
+        _errorMessage = authStore.lastAuthError;
       });
     }
   }
+
+  /// Opens the email-based OTP password-recovery dialog.
+  Future<void> _showForgotPasswordDialog() async {
+    _resetStage = 0;
+    _resetError = null;
+    _resetEmailController.clear();
+    _resetOtpController.clear();
+    _resetPasswordController.clear();
+    _resetConfirmController.clear();
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Forgot password?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (_resetStage == 0) ..._resetEmailStep(),
+              if (_resetStage == 1) ..._resetOtpStep(),
+              if (_resetError != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _resetError!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          if (_resetStage == 0) ...[
+            TextButton(
+              onPressed:
+                  _resetSending ? null : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: _resetSending ? null : _handleSendCode,
+              child: _resetSending
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Send code'),
+            ),
+          ] else ...[
+            TextButton(
+              onPressed:
+                  _resetSubmitting ? null : () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: _resetSubmitting ? null : _handleReset,
+              child: _resetSubmitting
+                  ? const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Text('Reset password'),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Future<void> _handleSendCode() async {
+    final email = _resetEmailController.text.trim();
+    if (email.isEmpty) {
+      setState(() => _resetError = 'Enter your email address.');
+      return;
+    }
+    setState(() {
+      _resetSending = true;
+      _resetError = null;
+    });
+    final authStore = context.read<AuthStore>();
+    final sent = await authStore.requestPasswordReset(email);
+    if (!mounted) return;
+    setState(() => _resetSending = false);
+    if (kDebugMode) {
+      debugPrint(
+        'Password-reset OTP for $email: ${authStore.lastSentOtp}',
+      );
+    }
+    if (sent) {
+      setState(() => _resetStage = 1);
+    } else {
+      // Generic message either way: avoids enumerating accounts via recovery.
+      setState(() {
+        _resetError =
+            'If an account exists with this email, a one-time code was sent.';
+      });
+    }
+  }
+
+  Future<void> _handleReset() async {
+    final otp = _resetOtpController.text.trim();
+    final password = _resetPasswordController.text;
+    final confirm = _resetConfirmController.text;
+    if (otp.length != 6 || otp.contains(RegExp(r'[^0-9]'))) {
+      setState(() => _resetError = 'Enter the 6-digit code.');
+      return;
+    }
+    if (password.isEmpty || password != confirm) {
+      setState(() => _resetError = 'Passwords must match and not be empty.');
+      return;
+    }
+    setState(() {
+      _resetSubmitting = true;
+      _resetError = null;
+    });
+    final ok = await context.read<AuthStore>().resetPasswordWithOtp(
+          _resetEmailController.text.trim(),
+          otp,
+          password,
+        );
+    if (!mounted) return;
+    setState(() => _resetSubmitting = false);
+    if (ok) {
+      Navigator.of(context).pop();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password reset successfully. Please sign in.'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } else {
+      setState(() => _resetError = 'Invalid or expired code. Request a new one.');
+    }
+  }
+
+  List<Widget> _resetEmailStep() => [
+        const Text('Enter the email address of your account.'),
+        const SizedBox(height: 12),
+        TextFormField(
+          controller: _resetEmailController,
+          keyboardType: TextInputType.emailAddress,
+          textInputAction: TextInputAction.done,
+          onFieldSubmitted: (_) => _handleSendCode(),
+          autocorrect: false,
+          enableSuggestions: false,
+          decoration: const InputDecoration(
+            hintText: 'email@institute.edu',
+            prefixIcon: Icon(Icons.email_outlined),
+          ),
+        ),
+      ];
+
+  List<Widget> _resetOtpStep() => [
+        const Text('Enter the 6-digit code sent to your email.'),
+        const SizedBox(height: 12),
+        TextFormField(
+          key: const Key('otpField'),
+          controller: _resetOtpController,
+          keyboardType: TextInputType.number,
+          textInputAction: TextInputAction.next,
+          maxLength: 6,
+          decoration: const InputDecoration(
+            hintText: '123456',
+            prefixIcon: Icon(Icons.lock_outline_rounded),
+            counterText: '',
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          key: const Key('resetPasswordField'),
+          controller: _resetPasswordController,
+          obscureText: true,
+          textInputAction: TextInputAction.next,
+          decoration: const InputDecoration(
+            hintText: 'New password',
+            prefixIcon: Icon(Icons.lock_outline_rounded),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextFormField(
+          key: const Key('resetConfirmField'),
+          controller: _resetConfirmController,
+          obscureText: true,
+          textInputAction: TextInputAction.done,
+          onFieldSubmitted: (_) => _handleReset(),
+          decoration: const InputDecoration(
+            hintText: 'Confirm new password',
+            prefixIcon: Icon(Icons.lock_outline_rounded),
+          ),
+        ),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -167,52 +391,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 18),
 
-                    // Default Credentials Quick Badge
-                    InkWell(
-                      onTap: _resetDefaultCredentials,
-                      borderRadius: BorderRadius.circular(12),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 10,
-                        ),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primaryContainer.withValues(alpha: 0.4),
-                          borderRadius: BorderRadius.circular(12),
-                          border: Border.all(
-                            color: colorScheme.primary.withValues(alpha: 0.2),
-                          ),
-                        ),
-                        child: Row(
-                          children: [
-                            Icon(
-                              Icons.info_outline_rounded,
-                              size: 20,
-                              color: colorScheme.primary,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Text(
-                                'Default: ${AppConstants.defaultAdminUsername} / ${AppConstants.defaultAdminPassword}',
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: colorScheme.primary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            Text(
-                              'Auto-fill',
-                              style: theme.textTheme.labelSmall?.copyWith(
-                                color: colorScheme.primary,
-                                fontWeight: FontWeight.bold,
-                                decoration: TextDecoration.underline,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(height: 24),
 
                     // Error Message banner if any
                     if (_errorMessage != null) ...[
@@ -248,28 +426,30 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Username Field
+                    // Identifier field — accepts username, roll number, or
+                    // employee ID interchangeably.
                     Text(
-                      'Username',
+                      'Username / Roll No / Employee ID',
                       style: theme.textTheme.labelLarge?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 8),
                     TextFormField(
-                      key: const Key('usernameField'),
-                      controller: _usernameController,
+                      key: const Key('identifierField'),
+                      controller: _identifierController,
                       keyboardType: TextInputType.text,
                       textInputAction: TextInputAction.next,
                       autocorrect: false,
                       enableSuggestions: false,
                       decoration: const InputDecoration(
-                        hintText: 'Enter your username',
+                        hintText:
+                            'Enter your username, roll number, or employee ID',
                         prefixIcon: Icon(Icons.person_outline_rounded),
                       ),
                       validator: (value) {
                         if (value == null || value.trim().isEmpty) {
-                          return 'Username is required';
+                          return 'Identifier is required';
                         }
                         return null;
                       },
@@ -349,16 +529,8 @@ class _LoginScreenState extends State<LoginScreen> {
                           ],
                         ),
                         TextButton(
-                          onPressed: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  'Default login: ${AppConstants.defaultAdminUsername} / ${AppConstants.defaultAdminPassword}',
-                                ),
-                                behavior: SnackBarBehavior.floating,
-                              ),
-                            );
-                          },
+                          key: const Key('forgotPasswordButton'),
+                          onPressed: _isLoading ? null : _showForgotPasswordDialog,
                           child: const Text('Forgot password?'),
                         ),
                       ],
@@ -389,6 +561,44 @@ class _LoginScreenState extends State<LoginScreen> {
                               ),
                       ),
                     ),
+                    if (kDebugMode) ...[
+                      const SizedBox(height: 12),
+                      OutlinedButton.icon(
+                        key: const Key('devBypassButton'),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: colorScheme.tertiary,
+                          side: BorderSide(
+                            color: colorScheme.tertiary.withValues(alpha: 0.5),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                        ),
+                        icon: const Icon(Icons.flash_on_rounded, size: 20),
+                        label: const Text('⚡ Quick Dev Sign-In (Admin Bypass)'),
+                        onPressed: _isLoading
+                            ? null
+                            : () async {
+                                final messenger = ScaffoldMessenger.of(context);
+                                final navigator = Navigator.of(context);
+                                final authStore = context.read<AuthStore>();
+                                setState(() => _isLoading = true);
+                                final user = await authStore.devBypassLogin();
+                                if (!mounted) return;
+                                setState(() => _isLoading = false);
+                                messenger.showSnackBar(
+                                  SnackBar(
+                                    content: Text('⚡ Signed in as ${user.displayName} (Dev Bypass)'),
+                                    backgroundColor: Colors.teal.shade700,
+                                    behavior: SnackBarBehavior.floating,
+                                  ),
+                                );
+                                navigator.pushReplacement(
+                                  MaterialPageRoute<void>(
+                                    builder: (_) => const HomeScreen(),
+                                  ),
+                                );
+                              },
+                      ),
+                    ],
                     const SizedBox(height: 24),
 
                     // Footer / Help info
