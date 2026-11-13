@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/migrations/fresh_database_creator.dart';
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v8.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
 
 class DatabaseHelper {
@@ -26,17 +27,19 @@ class DatabaseHelper {
   Future<Database> _initDB(String filePath) async {
     final db = await openDatabase(
       filePath,
-      version: 9,
+      version: 10,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onDowngrade: _onDowngrade,
     );
     await db.execute('PRAGMA foreign_keys = ON;');
+    await SchemaMigrationV9.execute(db);
     return db;
   }
 
   Future _onCreate(Database db, int version) async {
     await FreshDatabaseCreator.createAndSeed(db);
+    await SchemaMigrationV9.execute(db);
   }
 
 
@@ -111,6 +114,11 @@ class DatabaseHelper {
     }
     if (oldVersion < 9) {
       await SchemaMigrationV9.execute(db);
+    }
+    if (oldVersion < 10) {
+      // v8 adds sync_queue.status / next_retry_at for capped retries and the
+      // quarantine dead-letter queue (applied once on upgrade).
+      await SchemaMigrationV8.execute(db);
     }
     await db.execute('PRAGMA foreign_keys = ON;');
   }

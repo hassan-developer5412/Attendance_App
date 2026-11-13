@@ -177,6 +177,20 @@ class SyncQueueRepository {
     return (result.first['cnt'] as int?) ?? 0;
   }
 
+  /// Gets quarantined (permanently failed) items, most recent first, for admin
+  /// inspection. These are never retried automatically.
+  Future<List<SyncQueueItem>> getQuarantinedItems({int limit = 100}) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'sync_queue',
+      where: 'status = ?',
+      whereArgs: [SyncStatus.quarantined.value],
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return rows.map(SyncQueueItem.fromMap).toList();
+  }
+
   /// Clears the queue (e.g. for testing or reset).
   Future<void> clear() async {
     final db = await _dbHelper.database;

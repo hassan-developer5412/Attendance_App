@@ -11,6 +11,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
 import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/user_repository.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
@@ -103,7 +104,12 @@ class AuthStore extends ChangeNotifier {
   RBACStore? _rbacStore;
 
   /// Attaches an [RBACStore] so login/logout can load/clear permission grants.
-  void attachRbacStore(RBACStore store) => _rbacStore = store;
+  void attachRbacStore(RBACStore store) {
+    _rbacStore = store;
+    if (_currentUser != null) {
+      unawaited(store.loadForUser(_currentUser!.id));
+    }
+  }
 
   User? _currentUser;
 
@@ -224,6 +230,9 @@ class AuthStore extends ChangeNotifier {
     }
 
     _currentUser = user;
+    try {
+      await _rbacStore?.loadForUser(user.id);
+    } catch (_) {}
     // Refresh idle activity on restore.
     await _secureStorage.write(
       key: _sessionKeyLastActivity,
@@ -323,6 +332,10 @@ class AuthStore extends ChangeNotifier {
   }) async {
     _lastAuthError = null;
     final db = await _databaseHelper.database;
+    try {
+      await SchemaMigrationV9.execute(db);
+    } catch (_) {}
+
     final adminId = UuidUtils.deterministic('users', username);
     final now = DateTime.now().toUtc();
     final expiresAt = now.add(_absoluteTtl);
@@ -369,27 +382,37 @@ class AuthStore extends ChangeNotifier {
 
     try {
       final roleRows = await db.query('roles', where: 'code = ?', whereArgs: ['admin'], limit: 1);
-      if (roleRows.isNotEmpty) {
-        final roleId = roleRows.first['id'] as String;
-        final urRows = await db.query('user_roles', where: 'user_id = ? AND role_id = ?', whereArgs: [user.id, roleId]);
-        if (urRows.isEmpty) {
-          await db.insert('user_roles', {
-            'id': UuidUtils.generate(),
-            'user_id': user.id,
-            'role_id': roleId,
-            'institute_id': AppConstants.defaultInstituteId,
-            'assigned_at': now.toIso8601String(),
-            'sync_status': 'SYNCED',
-            'is_deleted': 0,
-            'is_synced': 1,
-          });
-        }
+      final roleId = roleRows.isNotEmpty
+          ? (roleRows.first['id'] as String)
+          : UuidUtils.deterministic('roles', 'admin');
+
+      final urRows = await db.query('user_roles', where: 'user_id = ? AND role_id = ?', whereArgs: [user.id, roleId]);
+      if (urRows.isEmpty) {
+        await db.insert('user_roles', {
+          'id': UuidUtils.generate(),
+          'user_id': user.id,
+          'role_id': roleId,
+          'institute_id': AppConstants.defaultInstituteId,
+          'assigned_at': now.toIso8601String(),
+          'sync_status': 'SYNCED',
+          'is_deleted': 0,
+          'is_synced': 1,
+        });
       }
     } catch (_) {}
 
     _currentUser = user;
 
-    await _rbacStore?.loadForUser(user.id);
+    try {
+      await _rbacStore?.loadForUser(user.id);
+    } catch (e) {
+      debugPrint('RBAC load failed in devBypassLogin: $e');
+    }
+
+    // Direct in-memory guarantee for Admin bypass
+    final adminRoleId = UuidUtils.deterministic('roles', 'admin');
+    PermissionService.instance.currentUserId = user.id;
+    PermissionService.instance.setUserRoles(user.id, {adminRoleId});
 
     try {
       await _secureStorage.write(key: _sessionKeyUserId, value: user.id);

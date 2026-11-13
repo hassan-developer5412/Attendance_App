@@ -42,6 +42,16 @@ class SyncService {
   /// app configured credentials AND `Supabase.initialize()` succeeded.
   bool get _enabled => SupabaseConfig.isReady;
 
+  /// Pushes are only allowed when an authenticated Supabase session exists so
+  /// every cloud request carries the signed-in user's JWT (auth.uid()).
+  /// We never push anonymously under the anon key.
+  bool get _authenticated =>
+      _enabled && Supabase.instance.client.auth.currentUser != null;
+
+  /// Cached tenant context for the current flush cycle; reset each cycle so a
+  /// profile change is picked up on the next drain.
+  _TenantContext? _cachedTenantContext;
+
   /// Local column used to compare-and-set a row as synced, per table.
   /// Legacy INTEGER-PK tables sync via their `uuid` column; the rest via `id`.
   static const Map<String, String> _idColumns = <String, String>{
@@ -165,6 +175,7 @@ class SyncService {
       return;
     }
     _flushing = true;
+    _cachedTenantContext = null; // re-resolve tenant from the authenticated profile each cycle
     final stopwatch = Stopwatch()..start();
     _log('>>> FLUSH SYNC QUEUE CYCLE STARTED <<<');
     try {
@@ -178,48 +189,19 @@ class SyncService {
     }
   }
 
-  /// Re-tags every local row to [instituteId] and marks them unsynced.
-  void retagLocalRows(String instituteId) {
-    if (instituteId.isEmpty) {
-      _log('retagLocalRows SKIPPED: instituteId is empty');
-      return;
-    }
-    _log('retagLocalRows TRIGGERED for instituteId: $instituteId');
-    unawaited(_retagLocalRows(instituteId));
-  }
-
   // ===========================================================================
   // INTERNAL IMPLEMENTATION
   // ===========================================================================
-
-  Future<void> _retagLocalRows(String instituteId) async {
-    try {
-      final db = await DatabaseHelper.instance.database;
-      for (final table in _converters.keys) {
-        final count = await db.update(
-          table,
-          {
-            'institute_id': instituteId,
-            'is_synced': 0,
-            'sync_status': 'PENDING',
-          },
-          where: 'institute_id != ?',
-          whereArgs: [instituteId],
-        );
-        if (count > 0) {
-          _log('Re-tagged $count rows in "$table" to institute "$instituteId"');
-        }
-      }
-    } catch (e, s) {
-      _logError('Failed to retag local rows for institute $instituteId', e, s);
-    }
-  }
 
   Future<void> _pushLocalRow(
     String table,
     String idColumn,
     Object idValue,
   ) async {
+    if (!_authenticated) {
+      _log('_pushLocalRow ($table/$idValue) SKIPPED: no authenticated Supabase session');
+      return;
+    }
     Map<String, dynamic>? payload;
     try {
       final db = await DatabaseHelper.instance.database;
@@ -240,7 +222,8 @@ class SyncService {
       }
       payload = converter(rows.first);
       _log('_pushLocalRow ($table/${payload['id']}): Payload generated with${payload.length} keys');
-      await _upsert(table, payload);
+      final context = await _tenantContext();
+      await _upsert(table, payload, context);
       await _markSynced(table, payload);
       _log('_pushLocalRow SUCCESS ($table/${payload['id']})');
     } catch (e, s) {
@@ -251,13 +234,50 @@ class SyncService {
     }
   }
 
-  Future<void> _upsert(String table, Map<String, dynamic> payload) async {
+  /// Resolves (and caches per cycle) the tenant context for the authenticated
+  /// Supabase user. `institute_id`/`role` come from `public.profiles`, which is
+  /// bound to `auth.users.id` — never from a client-supplied value.
+  Future<_TenantContext> _tenantContext() async {
+    if (_cachedTenantContext != null) return _cachedTenantContext!;
+    if (!_authenticated) {
+      throw StateError(
+        'No authenticated Supabase session; refusing to push anonymously.',
+      );
+    }
+    final client = Supabase.instance.client;
+    final userId = client.auth.currentUser!.id;
+    final profile = await client
+        .from('profiles')
+        .select('institute_id, role')
+        .eq('id', userId)
+        .single();
+    final instituteId = (profile['institute_id'] as dynamic)?.toString();
+    if (instituteId == null || instituteId.isEmpty) {
+      throw StateError(
+        'Authenticated user profile is missing institute_id; cannot determine tenant.',
+      );
+    }
+    return _cachedTenantContext = _TenantContext(
+      userId: userId,
+      instituteId: instituteId,
+      role: (profile['role'] as dynamic)?.toString() ?? '',
+    );
+  }
+
+  Future<void> _upsert(
+    String table,
+    Map<String, dynamic> payload,
+    _TenantContext context,
+  ) async {
     final client = Supabase.instance.client;
     final finalPayload = <String, dynamic>{
       ...payload,
-      'institute_id': SupabaseConfig.instituteId,
+      'institute_id': context.instituteId,
     };
-    _log('Sending Supabase UPSERT to table "$table" (ID: ${finalPayload['id']}, Tenant:${SupabaseConfig.instituteId})');
+    _log(
+      'Sending Supabase UPSERT to table "$table" '
+      '(ID: ${finalPayload['id']}, Tenant:${context.instituteId}, User:${context.userId})',
+    );
     await client.from(table).upsert(finalPayload);
   }
 
@@ -321,6 +341,9 @@ class SyncService {
   }
 
   Future<void> _drainQueue() async {
+    // Resolve the authenticated tenant once per cycle. Throws when there is no
+    // Supabase session (or no profile), so no item is ever pushed anonymously.
+    final context = await _tenantContext();
     final items = await _queue.getPendingItems(limit: _drainBatch);
     if (items.isEmpty) {
       _log('Queue is empty. Nothing to drain.');
@@ -333,7 +356,7 @@ class SyncService {
     for (final item in items) {
       try {
         _log('Processing queued item ${item.entityType}/${item.entityId} (Attempt:${item.retryCount})');
-        await _upsert(item.entityType, item.payload);
+        await _upsert(item.entityType, item.payload, context);
         await _queue.delete(item.id);
         await _markSynced(item.entityType, item.payload);
         _log('Queue push SUCCESS for ${item.entityType}/${item.entityId}');
@@ -342,7 +365,15 @@ class SyncService {
         failCount++;
         _logError('Queue push FAILED for ${item.entityType}/${item.entityId}', e, s);
         try {
-          await _queue.markFailed(item.id, e.toString());
+          // Permanent auth/RLS/payload failures (401/403/400, RLS denial,
+          // missing columns, unique/not-null violations) are quarantined
+          // immediately; transient errors (offline, timeouts, 5xx) back off
+          // and are quarantined only after the retry cap.
+          await _queue.markFailed(
+            item.id,
+            e.toString(),
+            permanent: SyncQueueRepository.isPermanentError(e),
+          );
         } catch (markError) {
           _logError('Failed to record failure state in sync_queue DB', markError);
         }
@@ -383,4 +414,19 @@ class SyncService {
       _logError('Failed to enqueue sync item for table $table', e, s);
     }
   }
+}
+
+/// Resolved tenant + identity context for the current Supabase session.
+/// `institute_id` is read from `public.profiles` (bound to auth.users.id) so
+/// a client can never forge a tenant id.
+class _TenantContext {
+  const _TenantContext({
+    required this.userId,
+    required this.instituteId,
+    required this.role,
+  });
+
+  final String userId;
+  final String instituteId;
+  final String role;
 }

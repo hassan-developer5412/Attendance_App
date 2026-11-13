@@ -14,7 +14,7 @@ class FreshDatabaseCreator {
   FreshDatabaseCreator._();
 
   static Future<void> createAndSeed(Database db) async {
-    final now = DateTime.now().toUtc().toIso8601String();
+
     final batch = db.batch();
 
     // ── departments ──────────────────────────────────────────────────────────
@@ -266,7 +266,9 @@ class FreshDatabaseCreator {
         payload TEXT NOT NULL,
         created_at TEXT NOT NULL,
         retry_count INTEGER NOT NULL DEFAULT 0,
-        last_error TEXT
+        last_error TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING',
+        next_retry_at TEXT
       )
     ''');
 

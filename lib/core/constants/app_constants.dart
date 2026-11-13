@@ -31,7 +31,12 @@ class AppConstants {
   /// 8 — Sync queue dead-letter queue: `sync_queue.status` (PENDING /
   ///     QUARANTINED) and `sync_queue.next_retry_at` for capped retries with
   ///     exponential backoff instead of indefinite retry loops.
-  static const int databaseVersion = 8;
+  /// 9 — RBAC catalogue (roles, permissions, role_permissions, user_roles,
+  ///     user_departments) + predefined role/permission seeds.
+  /// 10 — Applies the v8 sync_queue dead-letter migration (status /
+  ///     next_retry_at) to upgraded databases; fresh installs create
+  ///     sync_queue with those columns.
+  static const int databaseVersion = 10;
 
   // Default admin credentials reference. No longer seeded on first launch
   // (fresh installs start with an empty `users` table); retained here so the

@@ -68,7 +68,9 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
     await DatabaseHelper.instance.database;
 
     // Initialize stores from the database.
+    final rbacStore = RBACStore();
     final authStore = AuthStore();
+    authStore.attachRbacStore(rbacStore);
     await authStore.init();
 
     final instituteStore = InstituteStore();
@@ -92,9 +94,6 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
       debugPrint('Failed to start background sync: $e');
       debugPrintStack(stackTrace: s);
     }
-
-    final rbacStore = RBACStore(); // ADD THIS
-    authStore.attachRbacStore(rbacStore); // ADD THIS
 
     return AttendanceApp(
       authStore: authStore,

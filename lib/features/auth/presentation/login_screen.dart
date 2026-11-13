@@ -254,7 +254,7 @@ class _LoginScreenState extends State<LoginScreen> {
       Navigator.of(context).pop();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text('Password reset successfully. Please sign in.'),
           backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,

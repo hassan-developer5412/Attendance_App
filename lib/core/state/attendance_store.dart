@@ -245,6 +245,26 @@ class AttendanceStore extends ChangeNotifier {
           String studentId) =>
       _repository.getStudentAttendanceBySubject(studentId);
 
+  /// Per-subject attendance analytics for a student including recent trend
+  /// (last 5 sessions vs overall average).
+  Future<List<Map<String, dynamic>>> getStudentSubjectAnalytics(String studentId) async {
+    // Base per‑subject analytics from the repository
+    final List<Map<String, dynamic>> base = await _repository.getStudentSubjectAnalytics(studentId);
+    // Enrich each subject entry with recent‑trend information (last 5 sessions)
+    for (final item in base) {
+      final String subjectId = item['subject_id'] as String;
+      final recent = await _repository.getSubjectRecentStats(studentId, subjectId, limit: 5);
+      final int recentSessions = recent['recentSessions'] as int? ?? 0;
+      final double? recentRate = recent['recentRate'] as double?;
+      final double overallRate = (item['attendanceRate'] as num?)?.toDouble() ?? 0.0;
+      final double? trend = recentRate != null ? recentRate - overallRate : null;
+      item['recentSessions'] = recentSessions;
+      item['recentRate'] = recentRate;
+      item['trend'] = trend;
+    }
+    return base;
+  }
+
   /// Detailed attendance log records for a student.
   Future<List<Map<String, dynamic>>> getDetailedAttendanceForStudent(
           String studentId) =>

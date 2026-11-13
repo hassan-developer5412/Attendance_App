@@ -1,6 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
+import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
+import 'package:attendance_app/core/repositories/user_repository.dart';
+import 'package:attendance_app/core/state/auth_store.dart';
+import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/features/dashboard/presentation/dashboard_shell.dart';
 
 void main() {
@@ -63,6 +70,62 @@ void main() {
       expect(adminMenu.contains('reports'), isTrue);
       expect(adminMenu.contains('institute'), isTrue);
       expect(adminMenu.contains('settings'), isTrue);
+    });
+
+    test('devBypassLogin grants RBAC permissions to admin user', () async {
+      sqfliteFfiInit();
+      databaseFactory = databaseFactoryFfi;
+      SharedPreferences.setMockInitialValues({});
+
+      final db = await databaseFactory.openDatabase(inMemoryDatabasePath);
+      await db.execute('''CREATE TABLE users (
+        id TEXT PRIMARY KEY,
+        username TEXT NOT NULL UNIQUE,
+        roll_no TEXT,
+        employee_id TEXT UNIQUE,
+        password_hash TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'admin',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        sync_status TEXT NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        auth_user_id TEXT,
+        is_default_password INTEGER DEFAULT 0,
+        is_suspended INTEGER DEFAULT 0,
+        suspended_at TEXT,
+        suspended_reason TEXT,
+        failed_login_attempts INTEGER DEFAULT 0,
+        locked_until TEXT,
+        password_changed_at TEXT,
+        last_login_at TEXT,
+        session_expires_at TEXT
+      )''');
+      await SchemaMigrationV9.execute(db);
+
+      final dbHelper = DatabaseHelper.forTesting(db);
+      final rbacStore = RBACStore();
+      final authStore = AuthStore(
+        userRepository: UserRepository(dbHelper: dbHelper),
+        secureStorage: FakeSecureStorage(),
+        databaseHelper: dbHelper,
+      );
+      authStore.attachRbacStore(rbacStore);
+
+      await authStore.devBypassLogin();
+
+      expect(authStore.isLoggedIn, isTrue);
+      expect(authStore.currentUserRole, equals(UserRole.admin));
+      expect(rbacStore.isAuthenticated, isTrue);
+      expect(rbacStore.hasPermission(PermissionCodes.dashboardView), isTrue);
+      expect(rbacStore.hasPermission(PermissionCodes.attendanceView), isTrue);
+      expect(rbacStore.hasPermission(PermissionCodes.userView), isTrue);
+      expect(rbacStore.hasPermission(PermissionCodes.settingManage), isTrue);
+
+      await db.close();
     });
   });
 }

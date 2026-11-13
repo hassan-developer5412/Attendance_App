@@ -197,8 +197,8 @@ class User {
     return User(
       id: id ?? this.id,
       username: username ?? this.username,
-      rollNo: rollNo ?? this.rollNo,
-      employeeId: employeeId ?? this.employeeId,
+      rollNo: rollNo ?? rollNo,
+      employeeId: employeeId ?? employeeId,
       displayName: displayName ?? this.displayName,
       email: email ?? this.email,
       role: role ?? this.role,

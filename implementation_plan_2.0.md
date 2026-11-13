@@ -191,7 +191,7 @@ final userStore = UserStore();
 **Method:** `AttendanceApp.build()`
 
 Add `UserStore` to the providers list, at the same level as the other stores:
-
+A
 ```dart
 return MultiProvider(
   providers: [
