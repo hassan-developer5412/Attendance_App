@@ -12,6 +12,7 @@ import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
+import 'package:attendance_app/core/models/role.dart';
 import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/user_repository.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
@@ -325,47 +326,100 @@ class AuthStore extends ChangeNotifier {
 
   /// Development workaround: bypasses credentials to sign in immediately as
   /// an administrator, ensuring developers are never blocked during dev/testing.
+  ///
+  /// Delegates to [devBypassLoginForRole] with the `admin` role code so the
+  /// admin and role-specific quick-login paths share one implementation.
   Future<User> devBypassLogin({
     String username = AppConstants.defaultAdminUsername,
     String displayName = AppConstants.defaultAdminDisplayName,
     String email = AppConstants.defaultAdminEmail,
+  }) async =>
+      devBypassLoginForRole(
+        'admin',
+        username: username,
+        displayName: displayName,
+        email: email,
+      );
+
+  /// Development workaround: bypasses credentials to sign in immediately as a
+  /// user with [roleCode] (any predefined [Role] code).
+  ///
+  /// This mirrors [login]'s state initialization exactly:
+  ///   * the `users` row is created/updated in SQLite with the given role;
+  ///   * role-scoped entities required by foreign keys are seeded — a
+  ///     `teachers` row (linked via `user_id`) for teachers and a
+  ///     `students` row (linked via a dev `classes` row) for students, so
+  ///     `teacher_id` / `student_id` references resolve when testing
+  ///     attendance or leave requests;
+  ///   * the matching `user_roles` grant is inserted;
+  ///   * [_rbacStore] is populated via [RBACStore.loadForUser] (the same path
+  ///     production logins use);
+  ///   * [PermissionService] is updated directly so permission grants resolve
+  ///     even when the store is not attached.
+  ///
+  /// Throws [UnsupportedError] outside debug builds; UI callers are gated
+  /// behind `if (kDebugMode)` so none of this logic is reachable in
+  /// profile/release builds.
+  Future<User> devBypassLoginForRole(String roleCode, {
+    String? username,
+    String? displayName,
+    String? email,
   }) async {
+    if (!kDebugMode) {
+      throw UnsupportedError('Dev bypass is only available in debug builds.');
+    }
+
+    final normalized = roleCode.trim().toLowerCase();
+    if (!Role.predefinedCodes.contains(normalized)) {
+      throw ArgumentError.value(
+        roleCode,
+        'roleCode',
+        'Unknown role code: $roleCode',
+      );
+    }
+
     _lastAuthError = null;
     final db = await _databaseHelper.database;
     try {
       await SchemaMigrationV9.execute(db);
     } catch (_) {}
 
-    final adminId = UuidUtils.deterministic('users', username);
+    final userRole = UserRole.fromString(normalized);
+    final userId = UuidUtils.deterministic('users', 'dev_$normalized');
     final now = DateTime.now().toUtc();
     final expiresAt = now.add(_absoluteTtl);
+    final login = username ?? 'dev_$normalized';
 
     final rows = await db.query(
       'users',
       where: 'username = ? AND is_deleted = 0',
-      whereArgs: [username],
+      whereArgs: [login],
       limit: 1,
     );
+
+    final userColumns = await _usersTableColumns(db);
+    final hasRollNo = userColumns.contains('roll_no');
+    final hasEmployeeId = userColumns.contains('employee_id');
 
     User user;
     if (rows.isEmpty) {
       user = User(
-        id: adminId,
-        username: username,
-        displayName: displayName,
-        email: email,
-        role: UserRole.admin,
+        id: userId,
+        username: login,
+        displayName: displayName ?? _devDisplayNameFor(normalized),
+        email: email ?? 'dev_$normalized@institute.edu',
+        role: userRole,
         isDefaultPassword: false,
         createdAt: now,
         updatedAt: now,
       );
-      await db.insert('users', {
+      final insertData = <String, dynamic>{
         'id': user.id,
         'username': user.username,
-        'password_hash': BCrypt.hashpw(AppConstants.defaultAdminPassword, BCrypt.gensalt()),
+        'password_hash': BCrypt.hashpw('Dev.Bypass@2026', BCrypt.gensalt()),
         'display_name': user.displayName,
         'email': user.email,
-        'role': 'admin',
+        'role': normalized,
         'is_deleted': 0,
         'is_default_password': 0,
         'is_suspended': 0,
@@ -375,54 +429,217 @@ class AuthStore extends ChangeNotifier {
         'sync_status': 'SYNCED',
         'is_synced': 1,
         'institute_id': AppConstants.defaultInstituteId,
-      });
+      };
+      if (hasRollNo) {
+        insertData['roll_no'] = normalized == 'student' ? 'DEV-STU-001' : null;
+      }
+      if (hasEmployeeId) {
+        insertData['employee_id'] = normalized == 'teacher' ? 'EMP-DEV-001' : null;
+      }
+      await db.insert('users', insertData);
     } else {
-      user = User.fromMap(rows.first);
+      user = User.fromMap(rows.first).copyWith(role: userRole);
+      final updateData = <String, dynamic>{
+        'role': normalized,
+        'updated_at': now.toIso8601String(),
+        'sync_status': 'PENDING',
+      };
+      if (hasRollNo) {
+        updateData['roll_no'] = normalized == 'student' ? 'DEV-STU-001' : null;
+      }
+      if (hasEmployeeId) {
+        updateData['employee_id'] = normalized == 'teacher' ? 'EMP-DEV-001' : null;
+      }
+      await db.update(
+        'users',
+        updateData,
+        where: 'id = ?',
+        whereArgs: [user.id],
+      );
     }
 
-    try {
-      final roleRows = await db.query('roles', where: 'code = ?', whereArgs: ['admin'], limit: 1);
-      final roleId = roleRows.isNotEmpty
-          ? (roleRows.first['id'] as String)
-          : UuidUtils.deterministic('roles', 'admin');
+    // ── Role-scoped entities required by foreign keys ────────────────────
+    // teachers.user_id -> users.id (attendance sessions reference faculty)
+    if (normalized == 'teacher') {
+      await _upsertDevTeacher(db, user, now);
+    }
+    // students.id is referenced by attendance_records.student_id and
+    // leave_requests.student_id; students.class_id -> classes.id
+    if (normalized == 'student') {
+      await _upsertDevStudent(db, user, now);
+    }
 
-      final urRows = await db.query('user_roles', where: 'user_id = ? AND role_id = ?', whereArgs: [user.id, roleId]);
+    // ── RBAC assignment (same path as production login) ──────────────────
+    String roleId = UuidUtils.deterministic('roles', normalized);
+    try {
+      final roleRows = await db.query(
+        'roles',
+        where: 'code = ? AND is_deleted = 0',
+        whereArgs: [normalized],
+        limit: 1,
+      );
+      roleId = roleRows.isNotEmpty
+          ? (roleRows.first['id'] as String)
+          : UuidUtils.deterministic('roles', normalized);
+
+      final urRows = await db.query(
+        'user_roles',
+        where: 'user_id = ? AND role_id = ? AND is_deleted = 0',
+        whereArgs: [user.id, roleId],
+        limit: 1,
+      );
       if (urRows.isEmpty) {
-        await db.insert('user_roles', {
-          'id': UuidUtils.generate(),
-          'user_id': user.id,
-          'role_id': roleId,
-          'institute_id': AppConstants.defaultInstituteId,
-          'assigned_at': now.toIso8601String(),
-          'sync_status': 'SYNCED',
-          'is_deleted': 0,
-          'is_synced': 1,
-        });
+        await db.insert(
+          'user_roles',
+          {
+            'id': UuidUtils.generate(),
+            'user_id': user.id,
+            'role_id': roleId,
+            'institute_id': AppConstants.defaultInstituteId,
+            'assigned_at': now.toIso8601String(),
+            'sync_status': 'SYNCED',
+            'is_deleted': 0,
+            'is_synced': 1,
+          },
+        );
       }
     } catch (_) {}
 
     _currentUser = user;
 
+    // Load grants through the RBAC store — identical to AuthStore.login.
     try {
       await _rbacStore?.loadForUser(user.id);
     } catch (e) {
-      debugPrint('RBAC load failed in devBypassLogin: $e');
+      debugPrint('RBAC load failed in devBypassLoginForRole: $e');
     }
 
-    // Direct in-memory guarantee for Admin bypass
-    final adminRoleId = UuidUtils.deterministic('roles', 'admin');
+    // Direct in-memory guarantee so PermissionService resolves the role's
+    // grants even when the store is not attached.
     PermissionService.instance.currentUserId = user.id;
-    PermissionService.instance.setUserRoles(user.id, {adminRoleId});
+    PermissionService.instance.setUserRoles(user.id, {roleId});
 
     try {
       await _secureStorage.write(key: _sessionKeyUserId, value: user.id);
-      await _secureStorage.write(key: _sessionKeyUserRole, value: user.role.value);
-      await _secureStorage.write(key: _sessionKeyExpiresAt, value: expiresAt.toIso8601String());
-      await _secureStorage.write(key: _sessionKeyLastActivity, value: now.toIso8601String());
+      await _secureStorage.write(key: _sessionKeyUserRole, value: normalized);
+      await _secureStorage.write(
+        key: _sessionKeyExpiresAt,
+        value: expiresAt.toIso8601String(),
+      );
+      await _secureStorage.write(
+        key: _sessionKeyLastActivity,
+        value: now.toIso8601String(),
+      );
     } catch (_) {}
 
     notifyListeners();
     return _currentUser!;
+  }
+
+  /// Returns the set of column names currently on the `users` table, so the
+  /// dev bypass can gracefully handle databases that predate the `roll_no` /
+  /// `employee_id` columns (e.g. tests that create `users` manually without
+  /// running [DatabaseHelper._initDB] / [_ensureUsersColumns]).
+  Future<Set<String>> _usersTableColumns(Database db) async {
+    final info = await db.rawQuery("PRAGMA table_info('users')");
+    return info.map((row) => row['name'] as String).toSet();
+  }
+
+  String _devDisplayNameFor(String roleCode) {
+    switch (roleCode) {
+      case 'admin':
+        return 'Dev Administrator';
+      case 'principal':
+        return 'Dev Principal';
+      case 'vice_principal':
+        return 'Dev Vice Principal';
+      case 'hod':
+        return 'Dev Head of Department';
+      case 'teacher':
+        return 'Dev Teacher';
+      case 'student':
+        return 'Dev Student';
+      case 'parent':
+        return 'Dev Parent';
+      case 'accountant':
+        return 'Dev Accountant';
+      case 'lab_in_charge':
+        return 'Dev Lab In-Charge';
+      case 'assistant':
+        return 'Dev Assistant';
+      default:
+        return 'Dev User';
+    }
+  }
+
+  Future<void> _upsertDevTeacher(Database db, User user, DateTime now) async {
+    await db.insert(
+      'teachers',
+      {
+        'id': UuidUtils.deterministic('teachers', user.id),
+        'name': user.displayName,
+        'subject': 'Development',
+        'email': user.email,
+        'username': user.username,
+        'password': '',
+        'class_id': null,
+        'is_active': 1,
+        'employee_code': 'EMP-DEV-001',
+        'designation': 'Instructor',
+        'department_id': null,
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+        'sync_status': 'SYNCED',
+        'is_deleted': 0,
+        'institute_id': AppConstants.defaultInstituteId,
+        'is_synced': 1,
+        'user_id': user.id,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> _upsertDevStudent(Database db, User user, DateTime now) async {
+    final classId = UuidUtils.deterministic('classes', 'dev_class');
+    await db.insert(
+      'classes',
+      {
+        'id': classId,
+        'name': 'Dev Class',
+        'section': 'A',
+        'room': 'DEV-001',
+        'class_name': 'Dev Class',
+        'current_year': '1st Year',
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+        'sync_status': 'SYNCED',
+        'is_deleted': 0,
+        'institute_id': AppConstants.defaultInstituteId,
+        'is_synced': 1,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+    await db.insert(
+      'students',
+      {
+        'id': UuidUtils.deterministic('students', user.id),
+        'name': user.displayName,
+        'roll_number': 'DEV-STU-001',
+        'class_id': classId,
+        'is_active': 1,
+        'roll_no': 'DEV-STU-001',
+        'full_name': user.displayName,
+        'father_name': '',
+        'status': 'ACTIVE',
+        'created_at': now.toIso8601String(),
+        'updated_at': now.toIso8601String(),
+        'sync_status': 'SYNCED',
+        'is_deleted': 0,
+        'institute_id': AppConstants.defaultInstituteId,
+        'is_synced': 1,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
   }
 
 

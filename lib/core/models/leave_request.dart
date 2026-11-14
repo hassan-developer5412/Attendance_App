@@ -54,6 +54,9 @@ class LeaveRequest {
     required this.endDate,
     required this.reason,
     this.status = LeaveStatus.pending,
+    this.studentId,
+    this.remarks,
+    this.attachmentUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
@@ -69,6 +72,9 @@ class LeaveRequest {
   final DateTime endDate;
   final String reason;
   LeaveStatus status;
+  final String? studentId;
+  final String? remarks;
+  final String? attachmentUrl;
   final DateTime createdAt;
   final DateTime updatedAt;
   final SyncStatus syncStatus;
@@ -107,6 +113,13 @@ class LeaveRequest {
       endDate: DateTime.parse(map['end_date'] as String),
       reason: (map['reason'] as String?) ?? '',
       status: LeaveStatus.fromString(map['status'] as String),
+      studentId: (map['student_id'] as String?) ?? (map['studentId'] as String?),
+      remarks: (map['remarks'] as String?) ??
+          (map['admin_remarks'] as String?) ??
+          (map['teacher_remarks'] as String?),
+      attachmentUrl: (map['attachment_url'] as String?) ??
+          (map['attachmentUrl'] as String?) ??
+          (map['document_url'] as String?),
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -130,6 +143,9 @@ class LeaveRequest {
       'end_date': endDate.toIso8601String(),
       'reason': reason,
       'status': status.value,
+      'student_id': studentId,
+      'remarks': remarks,
+      'attachment_url': attachmentUrl,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -147,6 +163,9 @@ class LeaveRequest {
       'end_date': endDate.toIso8601String(),
       'reason': reason,
       'status': status.value,
+      'student_id': studentId,
+      'remarks': remarks,
+      'attachment_url': attachmentUrl,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -169,6 +188,9 @@ class LeaveRequest {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'is_deleted': isDeleted,
+      if (studentId != null) 'student_id': studentId,
+      if (remarks != null) 'remarks': remarks,
+      if (attachmentUrl != null) 'attachment_url': attachmentUrl,
     };
   }
 
@@ -180,6 +202,9 @@ class LeaveRequest {
     DateTime? endDate,
     String? reason,
     LeaveStatus? status,
+    String? studentId,
+    String? remarks,
+    String? attachmentUrl,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
@@ -193,6 +218,9 @@ class LeaveRequest {
       endDate: endDate ?? this.endDate,
       reason: reason ?? this.reason,
       status: status ?? this.status,
+      studentId: studentId ?? this.studentId,
+      remarks: remarks ?? this.remarks,
+      attachmentUrl: attachmentUrl ?? this.attachmentUrl,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,

@@ -8,6 +8,7 @@ import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/core/state/user_store.dart';
+import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 import 'package:attendance_app/main.dart';
 
@@ -23,6 +24,7 @@ void main() {
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
         userStore: UserStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
@@ -52,6 +54,7 @@ void main() {
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
         userStore: UserStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
@@ -73,6 +76,7 @@ void main() {
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
         userStore: UserStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
@@ -94,6 +98,7 @@ void main() {
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
         userStore: UserStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
@@ -123,6 +128,7 @@ void main() {
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
         userStore: UserStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
@@ -136,7 +142,9 @@ void main() {
       expect(find.text('Enter the email address of your account.'), findsOneWidget);
     });
 
-    testWidgets('Quick dev sign-in button is visible in debug mode', (tester) async {
+    testWidgets(
+        'Quick dev sign-in section shows one button per role in debug mode',
+        (tester) async {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
@@ -144,13 +152,34 @@ void main() {
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
         userStore: UserStore(),
+        themeNotifier: ThemeNotifier(),
       );
 
       await tester.pumpWidget(app);
       await tester.pump();
 
-      expect(find.byKey(const Key('devBypassButton')), findsOneWidget);
-      expect(find.text('⚡ Quick Dev Sign-In (Admin Bypass)'), findsOneWidget);
+      final devRoleCodes = <String>[
+        'admin',
+        'principal',
+        'vice_principal',
+        'hod',
+        'teacher',
+        'student',
+        'parent',
+        'accountant',
+        'lab_in_charge',
+        'assistant',
+      ];
+
+      // One compact quick-login button per predefined role.
+      expect(find.byType(OutlinedButton), findsNWidgets(devRoleCodes.length));
+      for (final code in devRoleCodes) {
+        expect(
+          find.byKey(Key('devBypassButton_$code')),
+          findsOneWidget,
+          reason: 'Missing quick-login button for role $code',
+        );
+      }
     });
   });
 }

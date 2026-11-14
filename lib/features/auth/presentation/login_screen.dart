@@ -7,6 +7,28 @@ import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/features/auth/presentation/password_change_screen.dart';
 import 'package:attendance_app/features/home/presentation/home_screen.dart';
 
+/// One entry per predefined system role, mirrored from
+/// `MigrationHelpers._kRoles` / `Role._kPredefined` so every role in the
+/// system gets its own quick-login button in debug builds.
+class _DevRole {
+  const _DevRole({required this.code, required this.label});
+  final String code;
+  final String label;
+}
+
+const List<_DevRole> _kDevQuickLoginRoles = [
+  _DevRole(code: 'admin', label: 'Admin'),
+  _DevRole(code: 'principal', label: 'Principal'),
+  _DevRole(code: 'vice_principal', label: 'Vice Principal'),
+  _DevRole(code: 'hod', label: 'HOD'),
+  _DevRole(code: 'teacher', label: 'Teacher'),
+  _DevRole(code: 'student', label: 'Student'),
+  _DevRole(code: 'parent', label: 'Parent'),
+  _DevRole(code: 'accountant', label: 'Accountant'),
+  _DevRole(code: 'lab_in_charge', label: 'Lab In-Charge'),
+  _DevRole(code: 'assistant', label: 'Assistant'),
+];
+
 /// Professional Login Screen backed by database authentication.
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -56,6 +78,70 @@ class _LoginScreenState extends State<LoginScreen> {
     _resetPasswordController.dispose();
     _resetConfirmController.dispose();
     super.dispose();
+  }
+
+  /// Quick sign-in as [roleCode] via the shared dev bypass path. Uses the
+  /// exact same state initialization as production login (AuthStore.login),
+  /// so PermissionService / PermissionGuard resolve the role's real grants.
+  ///
+  /// Wrapped in try/catch/finally so [_isLoading] is always reset Ã¢â‚¬â€ even when
+  /// [devBypassLoginForRole] throws Ã¢â‚¬â€ preventing the login spinner from
+  /// spinning forever. No Supabase network calls are awaited here; everything
+  /// is local SQLite / secure storage.
+  Future<void> _handleDevLogin(String roleCode) async {
+    debugPrint('[DEV_LOGIN] 1. Starting quick sign-in for role: $roleCode');
+
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+    final authStore = context.read<AuthStore>();
+
+    setState(() => _isLoading = true);
+
+    try {
+      debugPrint('[DEV_LOGIN] 2. Calling authStore.devBypassLoginForRole($roleCode)');
+      final user = await authStore.devBypassLoginForRole(roleCode);
+      debugPrint(
+        '[DEV_LOGIN] 3. User resolved: ${user.displayName} (${user.role.value}) id=${user.id}',
+      );
+
+      if (!mounted) return;
+
+      debugPrint('[DEV_LOGIN] 4. Showing sign-in snackbar');
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Ã¢Å¡Â¡ Signed in as ${user.displayName} (${user.role.value})'),
+          backgroundColor: Colors.teal.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      if (!mounted) return;
+
+      debugPrint('[DEV_LOGIN] 5. Navigating to HomeScreen');
+      navigator.pushReplacement(
+        MaterialPageRoute<void>(
+          builder: (_) => const HomeScreen(),
+        ),
+      );
+      debugPrint('[DEV_LOGIN] 6. Navigation to HomeScreen triggered');
+    } catch (e, stackTrace) {
+      debugPrint('[DEV_LOGIN] ERROR during dev sign-in: $e');
+      debugPrint('[DEV_LOGIN] StackTrace: $stackTrace');
+      if (mounted) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('Dev sign-in failed: $e'),
+            backgroundColor: Colors.red.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } finally {
+      debugPrint('[DEV_LOGIN] finally: resetting _isLoading = false');
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
   }
 
   Future<void> _handleLogin() async {
@@ -109,7 +195,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (!mounted) return;
         messenger.showSnackBar(
           SnackBar(
-            content: Text('⚡ Signed in as ${devUser.displayName} (Dev Bypass)'),
+            content: Text('Ã¢Å¡Â¡ Signed in as ${devUser.displayName} (Dev Bypass)'),
             backgroundColor: Colors.teal.shade700,
             behavior: SnackBarBehavior.floating,
           ),
@@ -426,7 +512,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       const SizedBox(height: 16),
                     ],
 
-                    // Identifier field — accepts username, roll number, or
+                    // Identifier field Ã¢â‚¬â€ accepts username, roll number, or
                     // employee ID interchangeably.
                     Text(
                       'Username / Roll No / Employee ID',
@@ -562,41 +648,43 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                     ),
                     if (kDebugMode) ...[
-                      const SizedBox(height: 12),
-                      OutlinedButton.icon(
-                        key: const Key('devBypassButton'),
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: colorScheme.tertiary,
-                          side: BorderSide(
-                            color: colorScheme.tertiary.withValues(alpha: 0.5),
-                          ),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                      const SizedBox(height: 16),
+                      Text(
+                        'QUICK DEV SIGN-IN',
+                        style: theme.textTheme.labelSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 1.2,
+                          color: colorScheme.onSurfaceVariant.withValues(alpha: 0.6),
                         ),
-                        icon: const Icon(Icons.flash_on_rounded, size: 20),
-                        label: const Text('⚡ Quick Dev Sign-In (Admin Bypass)'),
-                        onPressed: _isLoading
-                            ? null
-                            : () async {
-                                final messenger = ScaffoldMessenger.of(context);
-                                final navigator = Navigator.of(context);
-                                final authStore = context.read<AuthStore>();
-                                setState(() => _isLoading = true);
-                                final user = await authStore.devBypassLogin();
-                                if (!mounted) return;
-                                setState(() => _isLoading = false);
-                                messenger.showSnackBar(
-                                  SnackBar(
-                                    content: Text('⚡ Signed in as ${user.displayName} (Dev Bypass)'),
-                                    backgroundColor: Colors.teal.shade700,
-                                    behavior: SnackBarBehavior.floating,
-                                  ),
-                                );
-                                navigator.pushReplacement(
-                                  MaterialPageRoute<void>(
-                                    builder: (_) => const HomeScreen(),
-                                  ),
-                                );
-                              },
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 8,
+                        children: _kDevQuickLoginRoles.map((devRole) {
+                          return OutlinedButton(
+                            key: Key('devBypassButton_${devRole.code}'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: colorScheme.tertiary,
+                              side: BorderSide(
+                                color: colorScheme.tertiary.withValues(alpha: 0.5),
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 14,
+                                vertical: 10,
+                              ),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            ),
+                            onPressed: _isLoading
+                                ? null
+                                : () => _handleDevLogin(devRole.code),
+                            child: Text(
+                              devRole.label,
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          );
+                        }).toList(),
                       ),
                     ],
                     const SizedBox(height: 24),

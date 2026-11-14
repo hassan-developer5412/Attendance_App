@@ -17,6 +17,11 @@ class DatabaseHelper {
   final Database? _testDatabase;
   static Database? _database;
 
+  /// Sets or clears an in-memory database instance for testing.
+  static void setTestDatabase(Database? db) {
+    _database = db;
+  }
+
   Future<Database> get database async {
     if (_testDatabase != null) return _testDatabase;
     if (_database != null) return _database!;
@@ -34,7 +39,38 @@ class DatabaseHelper {
     );
     await db.execute('PRAGMA foreign_keys = ON;');
     await SchemaMigrationV9.execute(db);
+
+    // Safety: ensure `users` has every column expected by User.toMap() /
+    // UserRepository, even on databases created before these columns existed
+    // or on fresh installs where the creator omitted them. This runs on every
+    // open so existing local .db files are healed without crashing.
+    await _ensureUsersColumns(db);
+
     return db;
+  }
+
+  /// Adds `roll_no` and `employee_id` to `users` when they are missing.
+  /// Uses `PRAGMA table_info(users)` so it is safe to re-run and never fails
+  /// on an existing column.
+  Future<void> _ensureUsersColumns(Database db) async {
+    final info = await db.rawQuery("PRAGMA table_info('users')");
+    final columns = info.map((row) => row['name'] as String).toSet();
+    await MigrationHelpers.addColumnIfNotExists(db, 'users', 'roll_no', 'TEXT');
+    await MigrationHelpers.addColumnIfNotExists(
+      db,
+      'users',
+      'employee_id',
+      'TEXT UNIQUE',
+    );
+    // Ensure `updated_at` default also exists (defensive, mirrors v7/v8).
+    if (!columns.contains('updated_at')) {
+      await MigrationHelpers.addColumnIfNotExists(
+        db,
+        'users',
+        'updated_at',
+        "TEXT NOT NULL DEFAULT (datetime('now'))",
+      );
+    }
   }
 
   Future _onCreate(Database db, int version) async {

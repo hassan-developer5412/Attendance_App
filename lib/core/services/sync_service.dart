@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
@@ -13,6 +14,7 @@ import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/models/sync_queue_item.dart';
 import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/sync_queue_repository.dart';
+import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 /// Pushes local SQLite writes to Supabase. SQLite stays the source of truth:
 /// every call here is best-effort and must never break the offline app.
@@ -64,7 +66,7 @@ class SyncService {
     'subjects': 'uuid',
     'attendance_sessions': 'id',
     'attendance_records': 'uuid',
-    'leave_requests': 'uuid',
+    'leave_requests': 'id',
     'lab_inventory': 'id',
   };
 
@@ -137,6 +139,79 @@ class SyncService {
     }
     _log('schedulePush TRIGGERED for table "$table" ($idColumn =$idValue)');
     unawaited(_pushLocalRow(table, idColumn, idValue));
+  }
+
+  /// Uploads an attachment to Supabase Storage.
+  /// If offline or upload fails, gracefully queues the upload into `sync_queue`
+  /// and returns a queued placeholder URI.
+  Future<String?> uploadAttachment({
+    required String fileName,
+    required List<int> bytes,
+    String bucket = 'leave-attachments',
+    String? contentType,
+  }) async {
+    final sanitizedName =
+        fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    final storagePath =
+        'leaves/${DateTime.now().millisecondsSinceEpoch}_$sanitizedName';
+
+    if (_authenticated) {
+      try {
+        final client = Supabase.instance.client;
+        _log('Uploading attachment to Supabase Storage: $bucket/$storagePath');
+        await client.storage.from(bucket).uploadBinary(
+              storagePath,
+              Uint8List.fromList(bytes),
+              fileOptions: FileOptions(
+                contentType: contentType ?? 'application/octet-stream',
+                upsert: true,
+              ),
+            );
+        final publicUrl = client.storage.from(bucket).getPublicUrl(storagePath);
+        _log('Attachment uploaded successfully: $publicUrl');
+        return publicUrl;
+      } catch (e, s) {
+        _logError('Supabase Storage upload failed, queuing for offline retry', e, s);
+      }
+    } else {
+      _log('No authenticated Supabase session. Queuing storage upload offline.');
+    }
+
+    // Offline or upload failed: queue in sync_queue
+    await queueStorageUpload(
+      bucket: bucket,
+      fileName: fileName,
+      bytes: bytes,
+      contentType: contentType,
+    );
+
+    return 'offline_queued://$storagePath';
+  }
+
+  /// Enqueues a binary attachment for background upload when connectivity returns.
+  Future<void> queueStorageUpload({
+    required String bucket,
+    required String fileName,
+    required List<int> bytes,
+    String? contentType,
+  }) async {
+    try {
+      await _queue.enqueue(
+        entityType: 'storage:$bucket',
+        entityId: UuidUtils.generate(),
+        operation: SyncOperation.create,
+        payload: {
+          'bucket': bucket,
+          'fileName': fileName,
+          'base64Data': base64Encode(bytes),
+          'contentType': contentType ?? 'application/octet-stream',
+          'queued_at': DateTime.now().toUtc().toIso8601String(),
+        },
+      );
+      _log('Attachment successfully queued for offline sync: $fileName');
+    } catch (e, s) {
+      _logError('Failed to enqueue attachment for offline sync', e, s);
+    }
   }
 
   /// Starts the periodic background flush. Idempotent; no-op when not enabled.
@@ -356,10 +431,16 @@ class SyncService {
     for (final item in items) {
       try {
         _log('Processing queued item ${item.entityType}/${item.entityId} (Attempt:${item.retryCount})');
-        await _upsert(item.entityType, item.payload, context);
-        await _queue.delete(item.id);
-        await _markSynced(item.entityType, item.payload);
-        _log('Queue push SUCCESS for ${item.entityType}/${item.entityId}');
+        if (item.entityType.startsWith('storage:')) {
+          await _uploadQueuedStorageItem(item);
+          await _queue.delete(item.id);
+          _log('Queue storage upload SUCCESS for ${item.entityType}/${item.entityId}');
+        } else {
+          await _upsert(item.entityType, item.payload, context);
+          await _queue.delete(item.id);
+          await _markSynced(item.entityType, item.payload);
+          _log('Queue push SUCCESS for ${item.entityType}/${item.entityId}');
+        }
         successCount++;
       } catch (e, s) {
         failCount++;
@@ -380,6 +461,28 @@ class SyncService {
       }
     }
     _log('Queue drain finished: $successCount succeeded,$failCount failed.');
+  }
+
+  Future<void> _uploadQueuedStorageItem(SyncQueueItem item) async {
+    final client = Supabase.instance.client;
+    final payload = item.payload;
+    final bucket = (payload['bucket'] as String?) ?? 'leave-attachments';
+    final fileName = (payload['fileName'] as String?) ?? 'file';
+    final base64Data = (payload['base64Data'] as String?) ?? '';
+    final contentType = payload['contentType'] as String?;
+    final bytes = base64Decode(base64Data);
+    final sanitizedName =
+        fileName.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+    final storagePath =
+        'leaves/${DateTime.now().millisecondsSinceEpoch}_$sanitizedName';
+    await client.storage.from(bucket).uploadBinary(
+          storagePath,
+          bytes,
+          fileOptions: FileOptions(
+            contentType: contentType ?? 'application/octet-stream',
+            upsert: true,
+          ),
+        );
   }
 
   Future<void> _enqueueQuietly(

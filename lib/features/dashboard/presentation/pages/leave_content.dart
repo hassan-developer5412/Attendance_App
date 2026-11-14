@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Leave management page backed by the database.
@@ -222,26 +224,82 @@ class _LeaveContentState extends State<LeaveContent> {
                                     overflow: TextOverflow.ellipsis,
                                   ),
                                 ],
-                                if (item.status == LeaveStatus.pending) ...[
-                                  const SizedBox(height: 10),
+                                if (item.attachmentUrl != null &&
+                                    item.attachmentUrl!.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.end,
                                     children: [
-                                      OutlinedButton(
-                                        onPressed: () =>
-                                            _updateStatus(item, LeaveStatus.rejected),
-                                        style: OutlinedButton.styleFrom(
-                                          foregroundColor: Colors.red,
+                                      Icon(Icons.attachment_rounded,
+                                          size: 16, color: colorScheme.primary),
+                                      const SizedBox(width: 4),
+                                      Expanded(
+                                        child: Text(
+                                          item.attachmentUrl!,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: colorScheme.primary,
+                                            fontStyle: FontStyle.italic,
+                                          ),
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
                                         ),
-                                        child: const Text('Reject'),
-                                      ),
-                                      const SizedBox(width: 8),
-                                      FilledButton(
-                                        onPressed: () =>
-                                            _updateStatus(item, LeaveStatus.approved),
-                                        child: const Text('Approve'),
                                       ),
                                     ],
+                                  ),
+                                ],
+                                if (item.remarks != null &&
+                                    item.remarks!.isNotEmpty) ...[
+                                  const SizedBox(height: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10, vertical: 6),
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.surfaceContainerHighest
+                                          .withValues(alpha: 0.5),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Row(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Icon(Icons.notes_rounded,
+                                            size: 14,
+                                            color: colorScheme.onSurfaceVariant),
+                                        const SizedBox(width: 6),
+                                        Expanded(
+                                          child: Text(
+                                            'Remarks: ${item.remarks}',
+                                            style: theme.textTheme.bodySmall?.copyWith(
+                                              color: colorScheme.onSurfaceVariant,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                                if (item.status == LeaveStatus.pending) ...[
+                                  const SizedBox(height: 10),
+                                  PermissionGuard(
+                                    permission: PermissionCodes.leaveApprove,
+                                    fallback: const SizedBox.shrink(),
+                                    child: Row(
+                                      mainAxisAlignment: MainAxisAlignment.end,
+                                      children: [
+                                        OutlinedButton(
+                                          onPressed: () =>
+                                              _updateStatus(item, LeaveStatus.rejected),
+                                          style: OutlinedButton.styleFrom(
+                                            foregroundColor: Colors.red,
+                                          ),
+                                          child: const Text('Reject'),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        FilledButton(
+                                          onPressed: () =>
+                                              _updateStatus(item, LeaveStatus.approved),
+                                          child: const Text('Approve'),
+                                        ),
+                                      ],
+                                    ),
                                   ),
                                 ],
                               ],

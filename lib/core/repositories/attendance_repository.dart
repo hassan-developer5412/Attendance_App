@@ -148,8 +148,8 @@ class AttendanceRepository {
         SUM(CASE WHEN rec.status = 'absent' THEN 1 ELSE 0 END) AS absentCount,
         SUM(CASE WHEN rec.status = 'leave' THEN 1 ELSE 0 END) AS leaveCount,
         (SUM(CASE WHEN rec.status IN ('present','late') THEN 1 ELSE 0 END) * 100.0) / NULLIF(COUNT(rec.id), 0) AS attendanceRate
-      FROM attendanceSessions sess
-      JOIN attendanceRecords rec ON rec.session_id = sess.id
+      FROM attendance_sessions sess
+      JOIN attendance_records rec ON rec.session_id = sess.id
       JOIN subjects sub ON sub.id = sess.subject_id
       WHERE rec.student_id = ?
         AND rec.is_deleted = 0
@@ -337,7 +337,7 @@ class AttendanceRepository {
         (SUM(CASE WHEN r.status IN ('present','late') THEN 1 ELSE 0 END) * 100.0) / NULLIF(COUNT(r.id),0) AS attendanceRate
       FROM classes c
       JOIN attendance_sessions s ON s.class_id = c.id AND s.is_deleted = 0
-      JOIN attendanceRecords r ON r.session_id = s.id AND r.is_deleted = 0
+      JOIN attendance_records r ON r.session_id = s.id AND r.is_deleted = 0
       GROUP BY c.id;
     ''');
     return rows;
@@ -375,7 +375,7 @@ class AttendanceRepository {
     final rows = await db.rawQuery('''
       SELECT st.id AS studentId, st.name, r.status, r.date
       FROM attendance_records r
-      JOIN attendanceSessions s ON r.session_id = s.id AND s.is_deleted = 0
+      JOIN attendance_sessions s ON r.session_id = s.id AND s.is_deleted = 0
       JOIN students st ON r.student_id = st.id AND st.is_deleted = 0
       WHERE s.subject_id = ? $whereClause AND r.is_deleted = 0
       ORDER BY st.name ASC;
@@ -403,7 +403,7 @@ class AttendanceRepository {
         SUM(CASE WHEN r.status = 'absent' THEN 1 ELSE 0 END) AS absent
       FROM subjects sub
       JOIN attendance_sessions s ON s.subject_id = sub.id AND s.is_deleted = 0
-      JOIN attendanceRecords r ON r.session_id = s.id AND r.is_deleted = 0
+      JOIN attendance_records r ON r.session_id = s.id AND r.is_deleted = 0
       $where
       GROUP BY sub.id;
     ''', args);
@@ -416,7 +416,7 @@ class AttendanceRepository {
       SELECT sub.id AS subjectId, sub.name AS subjectName,
         COUNT(*) AS totalSessions,
         SUM(CASE WHEN r.status IN ('present','late') THEN 1 ELSE 0 END) AS attended
-      FROM attendanceRecords r
+      FROM attendance_records r
       JOIN attendance_sessions s ON r.session_id = s.id AND s.is_deleted = 0
       JOIN subjects sub ON s.subject_id = sub.id
       WHERE r.student_id = ? AND r.is_deleted = 0
@@ -430,7 +430,7 @@ class AttendanceRepository {
     final rows = await db.rawQuery('''
       SELECT r.*, s.session_date, sub.name AS subject_name
       FROM attendance_records r
-      JOIN attendanceSessions s ON r.session_id = s.id AND s.is_deleted = 0
+      JOIN attendance_sessions s ON r.session_id = s.id AND s.is_deleted = 0
       JOIN subjects sub ON s.subject_id = sub.id
       WHERE r.student_id = ? AND r.is_deleted = 0
       ORDER BY s.session_date DESC;
@@ -445,7 +445,7 @@ class AttendanceRepository {
     final db = await _dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT r.status
-      FROM attendanceRecords r
+      FROM attendance_records r
       JOIN attendance_sessions s ON r.session_id = s.id
       WHERE r.student_id = ?
         AND s.subject_id = ?
