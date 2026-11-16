@@ -491,6 +491,10 @@ class SyncService {
   /// rejected local row so SQLite reflects the source of truth. Then fires
   /// [onPullCompleted] so stores reload from the local database.
   Future<void> _reconcileRejectedRow(String table, Map<String, dynamic> payload) async {
+    if (!_enabled) {
+      _log('_reconcileRejectedRow SKIPPED: SupabaseConfig.isReady is FALSE');
+      return;
+    }
     try {
       final id = payload['id'];
       if (id == null) return;
@@ -504,6 +508,7 @@ class SyncService {
         table,
         Map<String, dynamic>.from(remoteRow),
       );
+      if (normalized == null) return;
 
       await db.insert(
         table,
@@ -634,16 +639,25 @@ class SyncService {
             Map<String, dynamic>.from(remoteRow),
           );
 
+          // normalizeRemoteRowForSqlite returns null when a required NOT NULL
+          // column (e.g. role_permissions.permission_code) cannot be resolved.
+          if (normalized == null) {
+            final id = remoteRow['id']?.toString() ?? '<no-id>';
+            _log('pullAll SKIP $table/$id: normalized row is null (missing required column)');
+            continue;
+          }
+
           // Never clobber a locally-modified row that is still pending push.
-          if (await localRowIsPending(db, table, normalized)) {
-            final id = normalized['id']?.toString() ?? '<no-id>';
+          final row = normalized;
+          if (await localRowIsPending(db, table, row)) {
+            final id = row['id']?.toString() ?? '<no-id>';
             _log('pullAll SKIP $table/$id: local sync_status is PENDING');
             continue;
           }
 
           await db.insert(
             table,
-            normalized,
+            row,
             conflictAlgorithm: ConflictAlgorithm.replace,
           );
         }
@@ -670,8 +684,11 @@ class SyncService {
   /// Strips Supabase-only columns, coerces PostgreSQL bools to SQLite ints,
   /// injects sync bookkeeping, and derives deterministic IDs for the
   /// composite-key join tables. Only columns that exist locally are kept.
+  /// Returns `null` for `role_permissions` rows whose `permission_code` cannot
+  /// be resolved (e.g. missing `permission_id` or unknown permission), so the
+  /// caller can skip the upsert and avoid a NOT NULL constraint error.
   /// Public for testing.
-  Future<Map<String, dynamic>> normalizeRemoteRowForSqlite(
+  Future<Map<String, dynamic>?> normalizeRemoteRowForSqlite(
     Database db,
     String table,
     Map<String, dynamic> remoteRow,
@@ -693,6 +710,12 @@ class SyncService {
         if (perms.isNotEmpty) {
           normalized['permission_code'] = perms.first['code'] as String?;
         }
+      }
+      // If permission_code could not be resolved, skip this row entirely —
+      // the local column is NOT NULL and we cannot insert without it.
+      final permissionCode = normalized['permission_code'];
+      if (permissionCode == null || permissionCode.toString().isEmpty) {
+        return null;
       }
     }
 

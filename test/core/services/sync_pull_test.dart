@@ -52,11 +52,39 @@ void main() {
         updated_at TEXT NOT NULL
       )
     ''');
+
+    await db.execute('''
+      CREATE TABLE permissions (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        name TEXT NOT NULL,
+        is_deleted INTEGER NOT NULL DEFAULT 0,
+        sync_status TEXT NOT NULL DEFAULT 'PENDING',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        updated_at TEXT NOT NULL
+      )
+    ''');
+
+    await db.execute('''
+      CREATE TABLE role_permissions (
+        role_id TEXT NOT NULL,
+        permission_code TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        sync_status TEXT NOT NULL DEFAULT 'PENDING',
+        is_synced INTEGER NOT NULL DEFAULT 0,
+        institute_id TEXT NOT NULL DEFAULT 'default_institute',
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (role_id, permission_code)
+      )
+    ''');
   });
 
   tearDown(() async {
     await db.delete('users');
     await db.delete('departments');
+    await db.delete('permissions');
+    await db.delete('role_permissions');
     DatabaseHelper.setTestDatabase(null);
   });
 
@@ -83,10 +111,10 @@ void main() {
       remoteRow,
     );
 
-    expect(normalized['is_suspended'], 1);
-    expect(normalized['is_deleted'], 0);
-    expect(normalized['sync_status'], 'SYNCED');
-    expect(normalized['is_synced'], 1);
+    expect(normalized!['is_suspended'], 1);
+    expect(normalized!['is_deleted'], 0);
+    expect(normalized!['sync_status'], 'SYNCED');
+    expect(normalized!['is_synced'], 1);
   });
 
   test('normalizeRemoteRowForSqlite drops Supabase-only columns', () async {
@@ -106,8 +134,8 @@ void main() {
       remoteRow,
     );
 
-    expect(normalized.containsKey('local_id'), isFalse);
-    expect(normalized['id'], 'user-1');
+    expect(normalized!.containsKey('local_id'), isFalse);
+    expect(normalized!['id'], 'user-1');
   });
 
   test('normalizeRemoteRowForSqlite preserves is_deleted soft-delete flag', () async {
@@ -127,7 +155,106 @@ void main() {
       remoteRow,
     );
 
-    expect(normalized['is_deleted'], 1);
+    expect(normalized!['is_deleted'], 1);
+  });
+
+  // -----------------------------------------------------------------------
+  // role_permissions normalization
+  // -----------------------------------------------------------------------
+
+  test('normalizeRemoteRowForSqlite returns null for role_permissions when permission_id is null', () async {
+    await db.insert(
+      'permissions',
+      {
+        'id': 'perm-view',
+        'code': 'view_reports',
+        'name': 'View Reports',
+        'is_deleted': 0,
+        'sync_status': 'SYNCED',
+        'is_synced': 1,
+        'institute_id': 'default_institute',
+        'updated_at': '2026-01-01T00:00:00Z',
+      },
+    );
+
+    final remoteRow = <String, dynamic>{
+      'role_id': 'role-admin',
+      'permission_id': null,
+      'created_at': '2026-01-01T00:00:00Z',
+      'updated_at': '2026-01-01T00:00:00Z',
+    };
+
+    final normalized = await SyncService.instance.normalizeRemoteRowForSqlite(
+      db,
+      'role_permissions',
+      remoteRow,
+    );
+
+    expect(normalized, isNull);
+  });
+
+  test('normalizeRemoteRowForSqlite returns null for role_permissions when permission_id is unknown', () async {
+    await db.insert(
+      'permissions',
+      {
+        'id': 'perm-view',
+        'code': 'view_reports',
+        'name': 'View Reports',
+        'is_deleted': 0,
+        'sync_status': 'SYNCED',
+        'is_synced': 1,
+        'institute_id': 'default_institute',
+        'updated_at': '2026-01-01T00:00:00Z',
+      },
+    );
+
+    final remoteRow = <String, dynamic>{
+      'role_id': 'role-admin',
+      'permission_id': 'perm-nonexistent',
+      'created_at': '2026-01-01T00:00:00Z',
+      'updated_at': '2026-01-01T00:00:00Z',
+    };
+
+    final normalized = await SyncService.instance.normalizeRemoteRowForSqlite(
+      db,
+      'role_permissions',
+      remoteRow,
+    );
+
+    expect(normalized, isNull);
+  });
+
+  test('normalizeRemoteRowForSqlite resolves permission_code for role_permissions when permission_id exists', () async {
+    await db.insert(
+      'permissions',
+      {
+        'id': 'perm-view',
+        'code': 'view_reports',
+        'name': 'View Reports',
+        'is_deleted': 0,
+        'sync_status': 'SYNCED',
+        'is_synced': 1,
+        'institute_id': 'default_institute',
+        'updated_at': '2026-01-01T00:00:00Z',
+      },
+    );
+
+    final remoteRow = <String, dynamic>{
+      'role_id': 'role-admin',
+      'permission_id': 'perm-view',
+      'created_at': '2026-01-01T00:00:00Z',
+      'updated_at': '2026-01-01T00:00:00Z',
+    };
+
+    final normalized = await SyncService.instance.normalizeRemoteRowForSqlite(
+      db,
+      'role_permissions',
+      remoteRow,
+    );
+
+    expect(normalized, isNotNull);
+    expect(normalized!['permission_code'], 'view_reports');
+    expect(normalized!['role_id'], 'role-admin');
   });
 
   // -----------------------------------------------------------------------
@@ -153,7 +280,7 @@ void main() {
 
     await db.insert(
       'users',
-      normalized,
+      normalized!,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
@@ -188,7 +315,7 @@ void main() {
 
     await db.insert(
       'users',
-      normalized,
+      normalized!,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 
@@ -325,7 +452,7 @@ void main() {
 
     await db.insert(
       'departments',
-      normalized,
+      normalized!,
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
 

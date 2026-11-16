@@ -256,10 +256,20 @@ class AuthStore extends ChangeNotifier {
   Future<User?> login(String identifier, String password) async {
     _lastAuthError = null;
 
-    final result = await _userRepository.authenticate(identifier, password);
+    var result = await _userRepository.authenticate(identifier, password);
     if (result == null) {
-      _lastAuthError = 'Invalid identifier or password.';
-      return null;
+      // User not found locally — pull canonical data from Supabase in case
+      // the user exists in the cloud but hasn't been synced down yet, then
+      // try the local lookup one more time before failing.
+      if (SupabaseConfig.isReady) {
+        await SyncService.instance.pullAll();
+      }
+      final retry = await _userRepository.authenticate(identifier, password);
+      if (retry == null) {
+        _lastAuthError = 'Invalid identifier or password.';
+        return null;
+      }
+      result = retry;
     }
 
     final user = result.user;
