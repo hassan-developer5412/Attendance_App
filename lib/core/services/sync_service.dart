@@ -18,10 +18,25 @@ import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/sync_queue_repository.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
+/// Lifecycle state of the sync engine.
+///
+/// Distinct from `SyncStatus` in `app_constants.dart`, which describes the
+/// lifecycle of a single queue row (`pending` / `synced` / `quarantined`).
+enum SyncState {
+  /// No cycle running and nothing outstanding.
+  idle,
+  /// A push/pull cycle is in progress.
+  syncing,
+  /// Supabase is not configured or not initialized (offline-only mode).
+  offline,
+  /// The last cycle failed; see [SyncService.lastError].
+  error,
+}
+
 /// Pushes local SQLite writes to Supabase and pulls remote changes down.
 /// Supabase is the source of truth; SQLite is the offline cache.
 /// Every call here is best-effort and must never break the offline app.
-class SyncService {
+class SyncService with ChangeNotifier {
   SyncService._();
 
   static final SyncService instance = SyncService._();
@@ -43,6 +58,26 @@ class SyncService {
   Timer? _timer;
   bool _flushing = false;
 
+  /// Lifecycle state of the sync engine, exposed reactively so the UI can
+  /// render a live badge without polling the database.
+  SyncState _state =
+      SupabaseConfig.isReady ? SyncState.idle : SyncState.offline;
+
+  /// Queue rows awaiting push (PENDING, including items in backoff).
+  int _pendingCount = 0;
+
+  /// Permanently failed (quarantined) queue rows.
+  int _failedCount = 0;
+
+  /// Timestamp of the most recent successful pull cycle.
+  DateTime? _lastSyncedAt;
+
+  /// Error captured during the last failed sync cycle, if any.
+  Object? _lastError;
+
+  /// Coalesces concurrent count-refresh passes.
+  bool _countsRefreshing = false;
+
   /// Master gate: never touch `Supabase.instance` (it asserts) unless the
   /// app configured credentials AND `Supabase.initialize()` succeeded.
   bool get _enabled => SupabaseConfig.isReady;
@@ -52,6 +87,24 @@ class SyncService {
   /// We never push anonymously under the anon key.
   bool get _authenticated =>
       _enabled && Supabase.instance.client.auth.currentUser != null;
+
+  /// Current engine lifecycle state: `idle`, `syncing`, `offline`, `error`.
+  SyncState get syncState => _state;
+
+  /// Convenience: `true` while a push/pull cycle is running.
+  bool get isSyncing => _state == SyncState.syncing;
+
+  /// Number of queue items awaiting push (PENDING).
+  int get pendingCount => _pendingCount;
+
+  /// Number of permanently failed (quarantined) queue items.
+  int get failedCount => _failedCount;
+
+  /// Timestamp of the most recent successful pull cycle.
+  DateTime? get lastSyncedAt => _lastSyncedAt;
+
+  /// Error captured during the last failed sync cycle, if any.
+  Object? get lastError => _lastError;
 
   /// Cached tenant context for the current flush cycle; reset each cycle so a
   /// profile change is picked up on the next drain.
@@ -229,6 +282,7 @@ class SyncService {
   Future<void> start() async {
     if (!_enabled) {
       _log('start() SKIPPED: SupabaseConfig.isReady is FALSE');
+      _setState(SyncState.offline);
       return;
     }
     if (_timer != null) {
@@ -236,11 +290,29 @@ class SyncService {
       return;
     }
     _log('Starting periodic background sync timer (Interval: ${flushInterval.inSeconds}s)');
-    await _drainQueue();
-    await pullAll();
-    _timer = Timer.periodic(flushInterval, (_) async {
+    _setState(SyncState.syncing);
+    try {
       await _drainQueue();
       await pullAll();
+      if (_state != SyncState.error) _setState(SyncState.idle);
+      unawaited(_refreshCounts());
+    } catch (e, s) {
+      _logError('Initial sync cycle failed', e, s);
+      _setError(e);
+      _setState(SyncState.error);
+    }
+    _timer = Timer.periodic(flushInterval, (_) async {
+      _setState(SyncState.syncing);
+      try {
+        await _drainQueue();
+        await pullAll();
+        if (_state != SyncState.error) _setState(SyncState.idle);
+        unawaited(_refreshCounts());
+      } catch (e, s) {
+        _logError('Background sync cycle failed', e, s);
+        _setError(e);
+        _setState(SyncState.error);
+      }
     });
   }
 
@@ -251,6 +323,92 @@ class SyncService {
       _timer?.cancel();
       _timer = null;
     }
+  }
+
+  void _setState(SyncState state) {
+    if (_state == state) return;
+    _state = state;
+    notifyListeners();
+  }
+
+  void _setError(Object? error) {
+    if (_lastError == error) return;
+    _lastError = error;
+    notifyListeners();
+  }
+
+  void _setLastSynced(DateTime? time) {
+    if (_lastSyncedAt == time) return;
+    _lastSyncedAt = time;
+    notifyListeners();
+  }
+
+  /// Refreshes [pendingCount] and [failedCount] from [SyncQueueRepository].
+  /// Overlapping calls are coalesced so call sites can fire and forget.
+  Future<void> _refreshCounts() async {
+    if (_countsRefreshing) return;
+    _countsRefreshing = true;
+    try {
+      final pending = await _queue.getPendingCount();
+      final failed = await _queue.getQuarantinedCount();
+      var changed = false;
+      if (pending != _pendingCount) {
+        _pendingCount = pending;
+        changed = true;
+      }
+      if (failed != _failedCount) {
+        _failedCount = failed;
+        changed = true;
+      }
+      if (changed) notifyListeners();
+    } catch (e) {
+      _log('Refreshing sync counts failed: $e');
+    } finally {
+      _countsRefreshing = false;
+    }
+  }
+
+  /// Manual push/pull triggered from the UI: top up `sync_queue` from unsynced
+  /// local rows, drain it to Supabase, then pull remote changes into SQLite.
+  Future<void> syncNow() async {
+    if (!_enabled) {
+      _log('syncNow SKIPPED: Supabase is not ready');
+      _setState(SyncState.offline);
+      return;
+    }
+    if (_flushing) {
+      _log('syncNow SKIPPED: A flush cycle is already in progress');
+      return;
+    }
+    _flushing = true;
+    _cachedTenantContext = null;
+    _setState(SyncState.syncing);
+    _setError(null);
+    try {
+      await _enqueueUnsyncedRows();
+      await _drainQueue();
+      await pullAll();
+    } catch (e, s) {
+      _logError('syncNow failed', e, s);
+      _setError(e);
+      _setState(SyncState.error);
+    } finally {
+      _flushing = false;
+      if (_state != SyncState.error) _setState(SyncState.idle);
+      unawaited(_refreshCounts());
+    }
+  }
+
+  /// Re-queues a quarantined (permanently failed) queue item so the next
+  /// drain cycle retries it. Returns `false` when [id] is unknown or is not
+  /// currently quarantined.
+  Future<bool> retryItem(String id) async {
+    final ok = await _queue.retryItem(id);
+    if (ok) {
+      _log('Re-queued quarantined item $id for retry');
+      unawaited(_refreshCounts());
+    }
+    return ok;
   }
 
   /// One synchronous pass: top up `sync_queue` from unsynced local rows,
@@ -266,6 +424,8 @@ class SyncService {
     }
     _flushing = true;
     _cachedTenantContext = null; // re-resolve tenant from the authenticated profile each cycle
+    _setState(SyncState.syncing);
+    _setError(null);
     final stopwatch = Stopwatch()..start();
     _log('>>> FLUSH SYNC QUEUE CYCLE STARTED <<<');
     try {
@@ -274,8 +434,12 @@ class SyncService {
       _log('<<< FLUSH SYNC QUEUE CYCLE COMPLETED in ${stopwatch.elapsedMilliseconds}ms >>>');
     } catch (e, s) {
       _logError('Flush cycle encountered an unhandled error', e, s);
+      _setError(e);
+      _setState(SyncState.error);
     } finally {
       _flushing = false;
+      if (_state != SyncState.error) _setState(SyncState.idle);
+      unawaited(_refreshCounts());
     }
   }
 
@@ -321,6 +485,7 @@ class SyncService {
       if (payload != null) {
         await _enqueueQuietly(table, payload);
       }
+      unawaited(_refreshCounts());
     }
   }
 
@@ -428,6 +593,7 @@ class SyncService {
     if (newlyEnqueued > 0) {
       _log('Enqueued $newlyEnqueued new unsynced rows into sync_queue');
     }
+    unawaited(_refreshCounts());
   }
 
   Future<void> _drainQueue() async {
@@ -484,6 +650,7 @@ class SyncService {
       }
     }
     _log('Queue drain finished: $successCount succeeded,$failCount failed.');
+    unawaited(_refreshCounts());
   }
 
   /// When a push is permanently rejected by Supabase (4xx / RLS / payload
@@ -669,6 +836,8 @@ class SyncService {
       }
     }
     _log('pullAll: pull cycle complete (watermark=$now)');
+
+    _setLastSynced(DateTime.now());
 
     // Notify stores so they can reload from SQLite now that Supabase data has
     // been written into the local cache.

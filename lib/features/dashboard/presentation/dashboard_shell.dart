@@ -13,6 +13,7 @@ import 'package:attendance_app/features/dashboard/presentation/pages/reports_con
 import 'package:attendance_app/features/dashboard/presentation/pages/settings_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/students_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/teachers_content.dart';
+import 'package:attendance_app/features/dashboard/presentation/widgets/sync_status_pill.dart';
 import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
 import 'package:attendance_app/features/student_view/presentation/student_self_view_content.dart';
 import 'package:attendance_app/features/users/presentation/user_management_content.dart';
@@ -561,6 +562,7 @@ class _DashboardShellState extends State<DashboardShell> {
                       centerTitle: false,
                       elevation: 0,
                       scrolledUnderElevation: 1,
+                      actions: const [SyncStatusPill()],
                     ),
                     body: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 250),
@@ -588,6 +590,7 @@ class _DashboardShellState extends State<DashboardShell> {
             centerTitle: false,
             elevation: 0,
             scrolledUnderElevation: 1,
+            actions: const [SyncStatusPill()],
           ),
           drawer: SizedBox(
             width: _kSidebarWidth,

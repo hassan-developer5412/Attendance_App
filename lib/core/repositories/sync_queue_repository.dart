@@ -177,6 +177,16 @@ class SyncQueueRepository {
     return (result.first['cnt'] as int?) ?? 0;
   }
 
+  /// Gets the total number of permanently failed (quarantined) items.
+  Future<int> getQuarantinedCount() async {
+    final db = await _dbHelper.database;
+    final result = await db.rawQuery(
+      'SELECT COUNT(*) AS cnt FROM sync_queue WHERE status = ?',
+      [SyncStatus.quarantined.value],
+    );
+    return (result.first['cnt'] as int?) ?? 0;
+  }
+
   /// Gets quarantined (permanently failed) items, most recent first, for admin
   /// inspection. These are never retried automatically.
   Future<List<SyncQueueItem>> getQuarantinedItems({int limit = 100}) async {
@@ -189,6 +199,35 @@ class SyncQueueRepository {
       limit: limit,
     );
     return rows.map(SyncQueueItem.fromMap).toList();
+  }
+
+  /// Moves a quarantined item back to `PENDING`, clears its backoff and
+  /// recorded error, so the next drain cycle retries it.
+  /// Returns `false` when the item is missing or not quarantined.
+  Future<bool> retryItem(String id) async {
+    final db = await _dbHelper.database;
+    final rows = await db.query(
+      'sync_queue',
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isEmpty) return false;
+    if ((rows.first['status'] as String?) != SyncStatus.quarantined.value) {
+      return false;
+    }
+    await db.update(
+      'sync_queue',
+      {
+        'status': SyncStatus.pending.value,
+        'next_retry_at': null,
+        'last_error': null,
+        'retry_count': 0,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    return true;
   }
 
   /// Clears the queue (e.g. for testing or reset).
