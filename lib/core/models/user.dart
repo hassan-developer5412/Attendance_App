@@ -170,6 +170,16 @@ class User {
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'is_deleted': isDeleted,
+      // Canonical profile columns consolidated onto public.users so
+      // SyncService only pulls/pushes user records from one table.
+      'roll_no': rollNo,
+      'employee_id': employeeId,
+      'is_suspended': isSuspended,
+      'suspended_at': suspendedAt,
+      'suspended_reason': suspendedReason,
+      'failed_login_attempts': failedLoginAttempts,
+      'locked_until': lockedUntil,
+      'password_changed_at': passwordChangedAt,
     };
   }
 

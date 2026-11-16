@@ -169,6 +169,19 @@ class AttendanceStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clears the in-memory attendance session state so the UI re-fetches from
+  /// SQLite on next access. Called when Supabase pulls new data into SQLite.
+  Future<void> reload() async {
+    _records = [];
+    _currentSessionId = null;
+    _isSessionLoaded = false;
+    _isPreviouslySaved = false;
+    _isSessionLocked = false;
+    _sessionRemarks = '';
+    _draftStatuses.clear();
+    notifyListeners();
+  }
+
   /// Inserts or updates an attendance record (upsert on student_id + date).
   Future<void> markAttendance({
     required String studentId,

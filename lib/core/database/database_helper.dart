@@ -5,6 +5,7 @@ import 'package:attendance_app/core/database/migrations/fresh_database_creator.d
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v8.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v10.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -155,6 +156,9 @@ class DatabaseHelper {
       // v8 adds sync_queue.status / next_retry_at for capped retries and the
       // quarantine dead-letter queue (applied once on upgrade).
       await SchemaMigrationV8.execute(db);
+      // v10 makes students.class_id nullable and backfills deterministic IDs
+      // on the composite-key join tables (user_roles, user_departments).
+      await SchemaMigrationV10.execute(db);
     }
     await db.execute('PRAGMA foreign_keys = ON;');
   }

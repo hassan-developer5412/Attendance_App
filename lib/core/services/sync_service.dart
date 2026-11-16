@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 import 'package:attendance_app/core/config/supabase_config.dart';
@@ -16,8 +18,9 @@ import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/sync_queue_repository.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
-/// Pushes local SQLite writes to Supabase. SQLite stays the source of truth:
-/// every call here is best-effort and must never break the offline app.
+/// Pushes local SQLite writes to Supabase and pulls remote changes down.
+/// Supabase is the source of truth; SQLite is the offline cache.
+/// Every call here is best-effort and must never break the offline app.
 class SyncService {
   SyncService._();
 
@@ -53,6 +56,11 @@ class SyncService {
   /// Cached tenant context for the current flush cycle; reset each cycle so a
   /// profile change is picked up on the next drain.
   _TenantContext? _cachedTenantContext;
+
+  /// Callback fired after [pullAll] writes remote changes into SQLite.
+  /// Stores subscribe to this to reload their in-memory state from the local
+  /// database so the UI reflects the canonical (Supabase-synced) data.
+  Future<void> Function()? onPullCompleted;
 
   /// Local column used to compare-and-set a row as synced, per table.
   /// Legacy INTEGER-PK tables sync via their `uuid` column; the rest via `id`.
@@ -215,6 +223,9 @@ class SyncService {
   }
 
   /// Starts the periodic background flush. Idempotent; no-op when not enabled.
+  /// Each cycle pushes pending local rows to Supabase (`_drainQueue`) then pulls
+  /// remote changes down into SQLite (`pullAll`), making Supabase the source of
+  /// truth while SQLite remains the offline cache.
   Future<void> start() async {
     if (!_enabled) {
       _log('start() SKIPPED: SupabaseConfig.isReady is FALSE');
@@ -225,8 +236,12 @@ class SyncService {
       return;
     }
     _log('Starting periodic background sync timer (Interval: ${flushInterval.inSeconds}s)');
-    unawaited(flushSyncQueue());
-    _timer = Timer.periodic(flushInterval, (_) => unawaited(flushSyncQueue()));
+    await _drainQueue();
+    await pullAll();
+    _timer = Timer.periodic(flushInterval, (_) async {
+      await _drainQueue();
+      await pullAll();
+    });
   }
 
   /// Stops the periodic flush (used by tests / shutdown).
@@ -450,17 +465,61 @@ class SyncService {
           // missing columns, unique/not-null violations) are quarantined
           // immediately; transient errors (offline, timeouts, 5xx) back off
           // and are quarantined only after the retry cap.
+          final permanent = SyncQueueRepository.isPermanentError(e);
           await _queue.markFailed(
             item.id,
             e.toString(),
-            permanent: SyncQueueRepository.isPermanentError(e),
+            permanent: permanent,
           );
+          // On a permanent rejection (4xx / RLS / payload error), the local
+          // row can never win against Supabase. Re-fetch the canonical row
+          // from Supabase so SQLite reflects the source of truth, then notify
+          // stores via onPullCompleted so they reload from the local DB.
+          if (permanent && !item.entityType.startsWith('storage:')) {
+            await _reconcileRejectedRow(item.entityType, item.payload);
+          }
         } catch (markError) {
           _logError('Failed to record failure state in sync_queue DB', markError);
         }
       }
     }
     _log('Queue drain finished: $successCount succeeded,$failCount failed.');
+  }
+
+  /// When a push is permanently rejected by Supabase (4xx / RLS / payload
+  /// error), re-fetches the canonical row from Supabase and overwrites the
+  /// rejected local row so SQLite reflects the source of truth. Then fires
+  /// [onPullCompleted] so stores reload from the local database.
+  Future<void> _reconcileRejectedRow(String table, Map<String, dynamic> payload) async {
+    try {
+      final id = payload['id'];
+      if (id == null) return;
+
+      final client = Supabase.instance.client;
+      final remoteRow = await client.from(table).select('*').eq('id', id).single();
+
+      final db = await DatabaseHelper.instance.database;
+      final normalized = await normalizeRemoteRowForSqlite(
+        db,
+        table,
+        Map<String, dynamic>.from(remoteRow),
+      );
+
+      await db.insert(
+        table,
+        normalized,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+      _log('Reconciled rejected row $table/$id from Supabase into SQLite');
+
+      // Notify stores so they reload from SQLite now that the canonical row
+      // has been written into the local cache.
+      if (onPullCompleted != null) {
+        await onPullCompleted!();
+      }
+    } catch (e, s) {
+      _logError('Failed to reconcile rejected row $table', e, s);
+    }
   }
 
   Future<void> _uploadQueuedStorageItem(SyncQueueItem item) async {
@@ -516,6 +575,210 @@ class SyncService {
     } catch (e, s) {
       _logError('Failed to enqueue sync item for table $table', e, s);
     }
+  }
+
+  // ===========================================================================
+  // PULL: Supabase -> SQLite (Supabase is the source of truth)
+  // ===========================================================================
+
+  /// Foreign-key-safe order for pulling tables from Supabase. Parent tables are
+  /// pulled before their children so inserts never violate FK constraints.
+  static final List<String> _pullOrder = <String>[
+    'departments',
+    'academic_sessions',
+    'users',
+    'roles',
+    'permissions',
+    'role_permissions',
+    'user_roles',
+    'user_departments',
+    'classes',
+    'teachers',
+    'students',
+    'subjects',
+    'attendance_sessions',
+    'attendance_records',
+    'leave_requests',
+    'lab_inventory',
+  ];
+
+  /// Pulls incremental changes from Supabase into SQLite for every table in
+  /// [_pullOrder]. Per-table `last_synced_at` timestamps are tracked in
+  /// SharedPreferences so only rows with `updated_at` newer than the last sync
+  /// are fetched. Local rows whose `sync_status == 'PENDING'` are never
+  /// overwritten — they are left alone until `drainQueue()` pushes them.
+  Future<void> pullAll() async {
+    if (!_enabled) {
+      _log('pullAll SKIPPED: SupabaseConfig.isReady is FALSE');
+      return;
+    }
+    final prefs = await SharedPreferences.getInstance();
+    final db = await DatabaseHelper.instance.database;
+    final now = DateTime.now().toUtc().toIso8601String();
+
+    for (final table in _pullOrder) {
+      try {
+        final lastSynced = prefs.getString('last_synced_at_$table');
+        var builder = Supabase.instance.client.from(table).select('*');
+        if (lastSynced != null && lastSynced.isNotEmpty) {
+          builder = builder.gt('updated_at', lastSynced);
+        }
+        final rows = await builder;
+        _log('pullAll: fetched ${rows.length} row(s) from "$table" '
+            '(last_synced_at=$lastSynced)');
+
+        for (final remoteRow in rows) {
+          final normalized = await normalizeRemoteRowForSqlite(
+            db,
+            table,
+            Map<String, dynamic>.from(remoteRow),
+          );
+
+          // Never clobber a locally-modified row that is still pending push.
+          if (await localRowIsPending(db, table, normalized)) {
+            final id = normalized['id']?.toString() ?? '<no-id>';
+            _log('pullAll SKIP $table/$id: local sync_status is PENDING');
+            continue;
+          }
+
+          await db.insert(
+            table,
+            normalized,
+            conflictAlgorithm: ConflictAlgorithm.replace,
+          );
+        }
+
+        // Advance the watermark only after this table's rows are applied.
+        await prefs.setString('last_synced_at_$table', now);
+      } catch (e, s) {
+        _logError('pullAll failed for table "$table"', e, s);
+      }
+    }
+    _log('pullAll: pull cycle complete (watermark=$now)');
+
+    // Notify stores so they can reload from SQLite now that Supabase data has
+    // been written into the local cache.
+    if (onPullCompleted != null) {
+      try {
+        await onPullCompleted!();
+      } catch (e, s) {
+        _logError('onPullCompleted callback threw', e, s);
+      }
+    }
+  }
+
+  /// Strips Supabase-only columns, coerces PostgreSQL bools to SQLite ints,
+  /// injects sync bookkeeping, and derives deterministic IDs for the
+  /// composite-key join tables. Only columns that exist locally are kept.
+  /// Public for testing.
+  Future<Map<String, dynamic>> normalizeRemoteRowForSqlite(
+    Database db,
+    String table,
+    Map<String, dynamic> remoteRow,
+  ) async {
+    final localColumns = await _getLocalColumnNames(db, table);
+    final normalized = <String, dynamic>{};
+
+    // Map Supabase role_permissions.permission_id -> local permission_code.
+    if (table == 'role_permissions') {
+      final permissionId = remoteRow['permission_id'];
+      if (permissionId != null) {
+        final perms = await db.query(
+          'permissions',
+          columns: ['code'],
+          where: 'id = ?',
+          whereArgs: [permissionId],
+          limit: 1,
+        );
+        if (perms.isNotEmpty) {
+          normalized['permission_code'] = perms.first['code'] as String?;
+        }
+      }
+    }
+
+    for (final entry in remoteRow.entries) {
+      final col = entry.key;
+      if (!localColumns.contains(col)) {
+        // Drop Supabase-only columns (e.g. local_id) not present in SQLite.
+        continue;
+      }
+      var value = entry.value;
+      // Coerce PostgreSQL bool (true/false) to SQLite int (1/0).
+      if (value is bool) {
+        value = value ? 1 : 0;
+      }
+      normalized[col] = value;
+    }
+
+    // Deterministic IDs for composite-key join tables so the same assignment
+    // resolves to the same ID on every device.
+    if (table == 'user_roles' && localColumns.contains('id')) {
+      final userId = remoteRow['user_id'];
+      final roleId = remoteRow['role_id'];
+      if (userId != null && roleId != null) {
+        normalized['id'] =
+            UuidUtils.deterministic('user_roles', '${userId}_$roleId');
+      }
+    } else if (table == 'user_departments' && localColumns.contains('id')) {
+      final userId = remoteRow['user_id'];
+      final departmentId = remoteRow['department_id'];
+      if (userId != null && departmentId != null) {
+        normalized['id'] = UuidUtils.deterministic(
+          'user_departments',
+          '${userId}_$departmentId',
+        );
+      }
+    }
+
+    // Inject sync bookkeeping columns when they exist locally.
+    if (localColumns.contains('sync_status')) {
+      normalized['sync_status'] = 'SYNCED';
+    }
+    if (localColumns.contains('is_synced')) {
+      normalized['is_synced'] = 1;
+    }
+
+    return normalized;
+  }
+
+  /// Returns the set of column names for [table] in the local SQLite database.
+  Future<Set<String>> _getLocalColumnNames(Database db, String table) async {
+    final info = await db.rawQuery('PRAGMA table_info($table)');
+    return info.map((row) => row['name'] as String).toSet();
+  }
+
+  /// Returns true when an existing local row identified by [row] has
+  /// `sync_status == 'PENDING'`, meaning it has local changes that have not
+  /// yet been pushed to Supabase and must not be overwritten by a pull.
+  /// Public for testing.
+  Future<bool> localRowIsPending(
+    Database db,
+    String table,
+    Map<String, dynamic> row,
+  ) async {
+    String where;
+    List<Object?> whereArgs;
+    if (table == 'role_permissions') {
+      where = 'role_id = ? AND permission_code = ?';
+      whereArgs = <Object?>[row['role_id'], row['permission_code']];
+    } else if (table == 'user_roles') {
+      where = 'user_id = ? AND role_id = ?';
+      whereArgs = <Object?>[row['user_id'], row['role_id']];
+    } else if (row.containsKey('id') && row['id'] != null) {
+      where = 'id = ?';
+      whereArgs = <Object?>[row['id']];
+    } else {
+      return false; // Cannot identify the local row; safe to overwrite.
+    }
+
+    final existing = await db.query(
+      table,
+      where: where,
+      whereArgs: whereArgs,
+      limit: 1,
+    );
+    if (existing.isEmpty) return false;
+    return existing.first['sync_status'] == 'PENDING';
   }
 }
 

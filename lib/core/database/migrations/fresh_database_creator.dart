@@ -133,7 +133,7 @@ class FreshDatabaseCreator {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         roll_number TEXT NOT NULL,
-        class_id TEXT NOT NULL,
+        class_id TEXT,
         is_active INTEGER NOT NULL DEFAULT 1,
         roll_no TEXT,
         full_name TEXT,

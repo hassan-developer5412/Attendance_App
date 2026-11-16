@@ -86,6 +86,18 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
     final userStore = UserStore();
     final themeNotifier = ThemeNotifier();
 
+    // When Supabase pulls remote changes into SQLite (via pullAll), reload
+    // every active store from the local database so the UI reflects the
+    // canonical data. Set this before start() so the periodic timer also
+    // triggers store reloads.
+    SyncService.instance.onPullCompleted = () async {
+      await instituteStore.init();
+      await leaveStore.loadAll();
+      await userStore.loadUsers();
+      await rbacStore.refresh();
+      await attendanceStore.reload();
+    };
+
     // Kick off background Supabase sync (no-op unless Supabase is configured
     // and initialized). Failures never block app startup.
     try {

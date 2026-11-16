@@ -318,6 +318,9 @@ class AuthStore extends ChangeNotifier {
     // locally unless the Supabase session is valid and profile-linked.
     if (SupabaseConfig.isReady) {
       unawaited(SyncService.instance.flushSyncQueue());
+      // Pull canonical data from Supabase into SQLite so all stores reflect
+      // the source of truth immediately after login.
+      unawaited(SyncService.instance.pullAll());
     }
 
     notifyListeners();
