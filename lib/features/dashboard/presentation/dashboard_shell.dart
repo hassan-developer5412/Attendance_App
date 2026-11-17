@@ -13,6 +13,7 @@ import 'package:attendance_app/features/dashboard/presentation/pages/reports_con
 import 'package:attendance_app/features/dashboard/presentation/pages/settings_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/students_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/teachers_content.dart';
+import 'package:attendance_app/features/dashboard/presentation/pages/lab_inventory_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/sync_status_pill.dart';
 import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
 import 'package:attendance_app/features/student_view/presentation/student_self_view_content.dart';
@@ -41,6 +42,7 @@ class DashboardShell extends StatefulWidget {
         'user_management',
         'leave',
         'reports',
+        'lab_inventory',
       ];
     }
     return const [
@@ -54,6 +56,7 @@ class DashboardShell extends StatefulWidget {
       'reports',
       'institute',
       'settings',
+      'lab_inventory',
     ];
   }
 
@@ -188,6 +191,13 @@ class _DashboardShellState extends State<DashboardShell> {
           permission: PermissionCodes.reportView,
           builder: () => const ReportsContent(),
         ),
+        _MenuItem(
+          id: 'lab_inventory',
+          icon: Icons.inventory_2_rounded,
+          label: 'Lab Inventory',
+          permission: PermissionCodes.labView,
+          builder: () => const LabInventoryContent(),
+        ),
       ];
     }
 
@@ -262,6 +272,13 @@ class _DashboardShellState extends State<DashboardShell> {
         label: 'Settings',
         permission: PermissionCodes.settingManage,
         builder: () => const SettingsContent(),
+      ),
+      _MenuItem(
+        id: 'lab_inventory',
+        icon: Icons.inventory_2_rounded,
+        label: 'Lab Inventory',
+        permission: PermissionCodes.labView,
+        builder: () => const LabInventoryContent(),
       ),
     ];
   }

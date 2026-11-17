@@ -5,6 +5,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/state/lab_inventory_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/core/state/user_store.dart';
@@ -20,6 +21,7 @@ void main() {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
+        labInventoryStore: LabInventoryStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -50,6 +52,7 @@ void main() {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
+        labInventoryStore: LabInventoryStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -72,6 +75,7 @@ void main() {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
+        labInventoryStore: LabInventoryStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -94,6 +98,7 @@ void main() {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
+        labInventoryStore: LabInventoryStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -124,6 +129,7 @@ void main() {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
+        labInventoryStore: LabInventoryStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -148,6 +154,7 @@ void main() {
       final app = AttendanceApp(
         authStore: AuthStore(),
         instituteStore: InstituteStore(),
+        labInventoryStore: LabInventoryStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -183,3 +190,4 @@ void main() {
     });
   });
 }
+

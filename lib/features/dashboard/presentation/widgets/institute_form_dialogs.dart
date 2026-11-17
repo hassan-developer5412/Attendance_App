@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/migrations/migration_helpers.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/models/lab_inventory.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 class AddClassResult {
@@ -119,6 +120,52 @@ class AddAcademicSessionResult {
     this.isCurrent = false,
   });
 
+  final String name;
+  final DateTime startDate;
+  final DateTime endDate;
+  final bool isCurrent;
+}
+
+class AddDepartmentResult {
+  const AddDepartmentResult({
+    required this.name,
+    required this.code,
+    this.description = '',
+    required this.isActive,
+  });
+
+  final String name;
+  final String code;
+  final String description;
+  final bool isActive;
+}
+
+class EditDepartmentResult {
+  const EditDepartmentResult({
+    required this.id,
+    required this.name,
+    required this.code,
+    this.description = '',
+    required this.isActive,
+  });
+
+  final String id;
+  final String name;
+  final String code;
+  final String description;
+  final bool isActive;
+}
+
+class EditAcademicSessionResult {
+  const EditAcademicSessionResult({
+    required this.id,
+    required this.name,
+    required this.startDate,
+    required this.endDate,
+    this.isCurrent = false,
+  });
+
+  final String id;
   final String name;
   final DateTime startDate;
   final DateTime endDate;
@@ -1457,6 +1504,337 @@ class _AddAcademicSessionDialogState extends State<AddAcademicSessionDialog> {
   }
 }
 
+/// Dialog to add a new department.
+class AddDepartmentDialog extends StatefulWidget {
+  const AddDepartmentDialog({super.key});
+
+  @override
+  State<AddDepartmentDialog> createState() => _AddDepartmentDialogState();
+}
+
+class _AddDepartmentDialogState extends State<AddDepartmentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _codeController;
+  late final TextEditingController _descriptionController;
+  bool _isActive = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+    _codeController = TextEditingController();
+    _descriptionController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _codeController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      AddDepartmentResult(
+        name: _nameController.text.trim(),
+        code: _codeController.text.trim().toUpperCase(),
+        description: _descriptionController.text.trim(),
+        isActive: _isActive,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add department'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextFormField(
+                  key: const Key('departmentNameField'),
+                  controller: _nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'Department name',
+                    hintText: 'e.g. Computer Information Technology',
+                    prefixIcon: Icon(Icons.apartment_rounded),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('departmentCodeField'),
+                  controller: _codeController,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'Department code',
+                    hintText: 'e.g. CIT',
+                    prefixIcon: Icon(Icons.label_outline_rounded),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descriptionController,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    hintText: 'Optional description',
+                    prefixIcon: Icon(Icons.note_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  value: _isActive,
+                  title: const Text('Active'),
+                  subtitle: const Text(
+                    'Inactive departments are hidden from pickers',
+                  ),
+                  onChanged: (val) => setState(() => _isActive = val),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirmAddButton'),
+          onPressed: _submit,
+          child: const Text('Add'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Dialog to edit an existing department.
+class EditDepartmentDialog extends StatefulWidget {
+  const EditDepartmentDialog({super.key, required this.department});
+
+  final Department department;
+
+  @override
+  State<EditDepartmentDialog> createState() => _EditDepartmentDialogState();
+}
+
+class _EditDepartmentDialogState extends State<EditDepartmentDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final TextEditingController _codeController;
+  late final TextEditingController _descriptionController;
+  late bool _isActive;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.department.name);
+    _codeController = TextEditingController(text: widget.department.code);
+    _descriptionController =
+        TextEditingController(text: widget.department.description);
+    _isActive = widget.department.isActive;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _codeController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      EditDepartmentResult(
+        id: widget.department.id,
+        name: _nameController.text.trim(),
+        code: _codeController.text.trim().toUpperCase(),
+        description: _descriptionController.text.trim(),
+        isActive: _isActive,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit department'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextFormField(
+                  key: const Key('editDepartmentNameField'),
+                  controller: _nameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'Department name',
+                    hintText: 'e.g. Computer Information Technology',
+                    prefixIcon: Icon(Icons.apartment_rounded),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('editDepartmentCodeField'),
+                  controller: _codeController,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'Department code',
+                    hintText: 'e.g. CIT',
+                    prefixIcon: Icon(Icons.label_outline_rounded),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  controller: _descriptionController,
+                  textInputAction: TextInputAction.done,
+                  decoration: InputDecoration(
+                    labelText: 'Description',
+                    hintText: 'Optional description',
+                    prefixIcon: Icon(Icons.note_outlined),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                SwitchListTile(
+                  value: _isActive,
+                  title: const Text('Active'),
+                  subtitle: const Text(
+                    'Inactive departments are hidden from pickers',
+                  ),
+                  onChanged: (val) => setState(() => _isActive = val),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('confirmSaveButton'),
+          onPressed: _submit,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
+/// Dialog to edit an existing academic session (e.g. 2026-27).
+class EditAcademicSessionDialog extends StatefulWidget {
+  const EditAcademicSessionDialog({super.key, required this.session});
+
+  final AcademicSession session;
+
+  @override
+  State<EditAcademicSessionDialog> createState() =>
+      _EditAcademicSessionDialogState();
+}
+
+class _EditAcademicSessionDialogState extends State<EditAcademicSessionDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _nameController;
+  late final DateTime _startDate;
+  late final DateTime _endDate;
+  late bool _isCurrent;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.session.name);
+    _startDate = widget.session.startDate;
+    _endDate = widget.session.endDate;
+    _isCurrent = widget.session.isCurrent;
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    Navigator.of(context).pop(
+      EditAcademicSessionResult(
+        id: widget.session.id,
+        name: _nameController.text.trim(),
+        startDate: _startDate,
+        endDate: _endDate,
+        isCurrent: _isCurrent,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Academic Session'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 420),
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _nameController,
+                decoration: InputDecoration(
+                  labelText: 'Session Name',
+                  hintText: 'e.g. 2026-27',
+                  prefixIcon: Icon(Icons.date_range_rounded),
+                ),
+                validator: _required,
+              ),
+              const SizedBox(height: 12),
+              SwitchListTile(
+                value: _isCurrent,
+                title: const Text('Set as Current Active Session'),
+                onChanged: (val) => setState(() => _isCurrent = val),
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _submit,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+}
+
 String? _required(String? value) {
   if (value == null || value.trim().isEmpty) {
     return 'Required';
@@ -1464,4 +1842,290 @@ String? _required(String? value) {
   return null;
 }
 
+
+
+/// Result returned by [showLabInventoryFormDialog].
+///
+/// [id] is `null` when adding a new item and holds the existing item's id
+/// when editing.
+class LabInventoryFormResult {
+  const LabInventoryFormResult({
+    this.id,
+    required this.itemName,
+    required this.departmentId,
+    required this.category,
+    required this.currentStock,
+    required this.unit,
+    required this.reorderLevel,
+  });
+
+  final String? id;
+  final String itemName;
+  final String departmentId;
+  final InventoryCategory category;
+  final double currentStock;
+  final String unit;
+  final double reorderLevel;
+
+  /// Builds a [LabInventory] from the form result. For new items the model
+  /// generates its own id; for edits [id] is preserved.
+  LabInventory toInventory() => LabInventory(
+        id: id,
+        itemName: itemName,
+        departmentId: departmentId,
+        category: category,
+        currentStock: currentStock,
+        unit: unit,
+        reorderLevel: reorderLevel,
+      );
+}
+
+/// Shows a form dialog to add a new lab inventory item or edit an existing
+/// one. When [item] is `null` the dialog creates a new record; otherwise the
+/// form is pre-populated for editing [item].
+///
+/// [departments] drives the department dropdown. `LabInventory.departmentId`
+/// is required, so saving is blocked when no departments are available.
+Future<LabInventoryFormResult?> showLabInventoryFormDialog({
+  required BuildContext context,
+  required List<Department> departments,
+  LabInventory? item,
+}) async {
+  return showDialog<LabInventoryFormResult>(
+    context: context,
+    builder: (ctx) => _LabInventoryFormDialog(
+      departments: departments,
+      item: item,
+    ),
+  );
+}
+
+class _LabInventoryFormDialog extends StatefulWidget {
+  const _LabInventoryFormDialog({required this.departments, this.item});
+
+  final List<Department> departments;
+  final LabInventory? item;
+
+  @override
+  State<_LabInventoryFormDialog> createState() =>
+      _LabInventoryFormDialogState();
+}
+
+class _LabInventoryFormDialogState extends State<_LabInventoryFormDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late final TextEditingController _itemNameController;
+  late final TextEditingController _unitController;
+  late final TextEditingController _currentStockController;
+  late final TextEditingController _reorderLevelController;
+  String? _selectedDepartmentId;
+  late InventoryCategory _selectedCategory;
+
+  @override
+  void initState() {
+    super.initState();
+    _itemNameController = TextEditingController(text: widget.item?.itemName ?? '');
+    _unitController =
+        TextEditingController(text: widget.item?.unit ?? 'pcs');
+    _currentStockController = TextEditingController(
+      text: widget.item?.currentStock.toString() ?? '',
+    );
+    _reorderLevelController = TextEditingController(
+      text: widget.item?.reorderLevel.toString() ?? '',
+    );
+    _selectedDepartmentId = widget.item?.departmentId;
+    _selectedCategory = widget.item?.category ??
+        InventoryCategory.hardwareEquipment;
+  }
+
+  @override
+  void dispose() {
+    _itemNameController.dispose();
+    _unitController.dispose();
+    _currentStockController.dispose();
+    _reorderLevelController.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    if (_selectedDepartmentId == null || _selectedDepartmentId!.isEmpty) {
+      return;
+    }
+    Navigator.of(context).pop(
+      LabInventoryFormResult(
+        id: widget.item?.id,
+        itemName: _itemNameController.text.trim(),
+        departmentId: _selectedDepartmentId!,
+        category: _selectedCategory,
+        currentStock: double.tryParse(_currentStockController.text.trim()) ??
+            0.0,
+        unit: _unitController.text.trim().isNotEmpty
+            ? _unitController.text.trim()
+            : 'pcs',
+        reorderLevel:
+            double.tryParse(_reorderLevelController.text.trim()) ?? 0.0,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final isEdit = widget.item != null;
+
+    return AlertDialog(
+      title: Text(isEdit ? 'Edit inventory item' : 'Add inventory item'),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 460),
+        child: Form(
+          key: _formKey,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextFormField(
+                  key: const Key('labInventoryItemNameField'),
+                  controller: _itemNameController,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'Item name',
+                    hintText: 'e.g. Burette, 50 mL',
+                    prefixIcon: const Icon(Icons.inventory_2_outlined),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                if (widget.departments.isNotEmpty) ...[
+                  AppDropdownButtonFormField<String>(
+                    initialValue: _selectedDepartmentId,
+                    decoration: InputDecoration(
+                      labelText: 'Department',
+                      prefixIcon: const Icon(Icons.apartment_rounded),
+                    ),
+                    isExpanded: true,
+                    items: widget.departments
+                        .map(
+                          (d) => DropdownMenuItem(
+                            value: d.id,
+                            child: Text(
+                              '${d.code} — ${d.name}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        )
+                        .toList(),
+                    onChanged: (val) =>
+                        setState(() => _selectedDepartmentId = val),
+                  ),
+                  const SizedBox(height: 12),
+                ] else ...[
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    child: Text(
+                      'No departments available. Add a department first.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ],
+                AppDropdownButtonFormField<InventoryCategory>(
+                  initialValue: _selectedCategory,
+                  decoration: InputDecoration(
+                    labelText: 'Category',
+                    prefixIcon: const Icon(Icons.category_outlined),
+                  ),
+                  isExpanded: true,
+                  items: InventoryCategory.values
+                      .map(
+                        (c) => DropdownMenuItem(
+                          value: c,
+                          child: Text(c.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (val) =>
+                      setState(() => _selectedCategory = val!),
+                ),
+                const SizedBox(height: 12),
+                TextFormField(
+                  key: const Key('labInventoryUnitField'),
+                  controller: _unitController,
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'Unit',
+                    hintText: 'e.g. pcs, kg, L',
+                    prefixIcon: const Icon(Icons.scale_outlined),
+                  ),
+                  validator: _required,
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        key: const Key('labInventoryCurrentStockField'),
+                        controller: _currentStockController,
+                        textInputAction: TextInputAction.next,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Current stock',
+                          prefixIcon: const Icon(Icons.numbers_outlined),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Required';
+                          }
+                          if (double.tryParse(val.trim()) == null) {
+                            return 'Enter a number';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: TextFormField(
+                        key: const Key('labInventoryReorderLevelField'),
+                        controller: _reorderLevelController,
+                        textInputAction: TextInputAction.done,
+                        keyboardType: TextInputType.number,
+                        decoration: InputDecoration(
+                          labelText: 'Reorder level',
+                          prefixIcon: const Icon(Icons.warning_outlined),
+                        ),
+                        validator: (val) {
+                          if (val == null || val.trim().isEmpty) {
+                            return 'Required';
+                          }
+                          if (double.tryParse(val.trim()) == null) {
+                            return 'Enter a number';
+                          }
+                          return null;
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('labInventorySaveButton'),
+          onPressed: _submit,
+          child: Text(isEdit ? 'Save' : 'Add'),
+        ),
+      ],
+    );
+  }
+}
 

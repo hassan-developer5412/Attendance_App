@@ -223,7 +223,7 @@ class InstituteStore extends ChangeNotifier {
   // Academic Sessions
   // ---------------------------------------------------------------------------
 
-  Future<void> setCurrentAcademicSession(String id) async {
+  Future<void> setActiveAcademicSession(String id) async {
     await _academicSessionRepository.setCurrent(id);
     for (final s in _academicSessions) {
       s.isCurrent = s.id == id;
@@ -242,6 +242,26 @@ class InstituteStore extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateAcademicSession(AcademicSession updated) async {
+    await _academicSessionRepository.update(updated);
+    final idx = _academicSessions.indexWhere((s) => s.id == updated.id);
+    if (idx >= 0) {
+      _academicSessions[idx] = updated;
+      if (updated.isCurrent) {
+        for (final s in _academicSessions) {
+          if (s.id != updated.id) s.isCurrent = false;
+        }
+      }
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteAcademicSession(String id) async {
+    await _academicSessionRepository.softDelete(id);
+    _academicSessions.removeWhere((s) => s.id == id);
+    notifyListeners();
+  }
+
   // ---------------------------------------------------------------------------
   // Departments
   // ---------------------------------------------------------------------------
@@ -249,6 +269,26 @@ class InstituteStore extends ChangeNotifier {
   Future<void> addDepartment(Department department) async {
     await _departmentRepository.insert(department);
     _departments.add(department);
+    notifyListeners();
+  }
+
+  Future<void> updateDepartment(Department updated) async {
+    await _departmentRepository.update(updated);
+    final idx = _departments.indexWhere((d) => d.id == updated.id);
+    if (idx >= 0) {
+      _departments[idx] = updated;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteDepartment(String id) async {
+    await _departmentRepository.softDelete(id);
+    _departments.removeWhere((d) => d.id == id);
+    // Unassign the deleted department from classes that reference it so no
+    // class keeps a dangling foreign key.
+    for (final c in _classes) {
+      if (c.departmentId == id) c.departmentId = null;
+    }
     notifyListeners();
   }
 
