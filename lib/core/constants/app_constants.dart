@@ -36,7 +36,9 @@ class AppConstants {
   /// 10 — Applies the v8 sync_queue dead-letter migration (status /
   ///     next_retry_at) to upgraded databases; fresh installs create
   ///     sync_queue with those columns.
-  static const int databaseVersion = 10;
+  /// 11 — Institute Notice Board & Circulars: `notices` table with
+  ///     `notice.view` and `notice.manage` RBAC permissions.
+  static const int databaseVersion = 11;
 
   // Default admin credentials reference. No longer seeded on first launch
   // (fresh installs start with an empty `users` table); retained here so the
@@ -293,6 +295,14 @@ class PermissionCodes {
   // ┌── Lab ───────────────────────────────────────────────────────────────
   static const labView = 'lab.view';
   static const labManage = 'lab.manage';
+
+  // ┌── Notices ───────────────────────────────────────────────────────────
+  /// Grants read access to the notice board (all roles).
+  static const noticeView = 'notice.view';
+
+  /// Grants authority to create, edit, pin, and delete notices
+  /// (Admin, Principal, Vice Principal, HOD).
+  static const noticeManage = 'notice.manage';
 
   // ┌── Settings ──────────────────────────────────────────────────────────
   static const settingManage = 'setting.manage';

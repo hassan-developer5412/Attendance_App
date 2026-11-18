@@ -14,6 +14,7 @@ import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/lab_inventory_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/state/notice_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart'; // ADD THIS
 import 'package:attendance_app/core/state/user_store.dart';
 import 'package:attendance_app/core/theme/app_theme.dart';
@@ -81,6 +82,9 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
     final labInventoryStore = LabInventoryStore();
     await labInventoryStore.init();
 
+    final noticeStore = NoticeStore();
+    await noticeStore.init();
+
     final attendanceStore = AttendanceStore();
 
     final leaveStore = LeaveStore();
@@ -97,6 +101,7 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
     SyncService.instance.onPullCompleted = () async {
       await instituteStore.init();
       await labInventoryStore.init();
+      await noticeStore.init();
       await leaveStore.loadAll();
       await userStore.loadUsers();
       await rbacStore.refresh();
@@ -118,6 +123,7 @@ class _AttendanceBootstrapState extends State<AttendanceBootstrap> {
       authStore: authStore,
       instituteStore: instituteStore,
       labInventoryStore: labInventoryStore,
+      noticeStore: noticeStore,
       attendanceStore: attendanceStore,
       leaveStore: leaveStore,
       rbacStore: rbacStore,
@@ -235,6 +241,7 @@ class AttendanceApp extends StatelessWidget {
     required this.authStore,
     required this.instituteStore,
     required this.labInventoryStore,
+    required this.noticeStore,
     required this.attendanceStore,
     required this.leaveStore,
     required this.rbacStore,
@@ -245,6 +252,7 @@ class AttendanceApp extends StatelessWidget {
   final AuthStore authStore;
   final InstituteStore instituteStore;
   final LabInventoryStore labInventoryStore;
+  final NoticeStore noticeStore;
   final AttendanceStore attendanceStore;
   final LeaveStore leaveStore;
   final RBACStore rbacStore;
@@ -258,6 +266,7 @@ class AttendanceApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: authStore),
         ChangeNotifierProvider.value(value: instituteStore),
         ChangeNotifierProvider.value(value: labInventoryStore),
+        ChangeNotifierProvider.value(value: noticeStore),
         ChangeNotifierProvider.value(value: attendanceStore),
         ChangeNotifierProvider.value(value: leaveStore),
         ChangeNotifierProvider.value(value: userStore),

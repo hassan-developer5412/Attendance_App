@@ -261,6 +261,27 @@ class FreshDatabaseCreator {
       )
     ''');
 
+    // ── notices ──────────────────────────────────────────────────────────────
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS notices (
+        id               TEXT PRIMARY KEY,
+        institute_id     TEXT NOT NULL,
+        title            TEXT NOT NULL,
+        body             TEXT NOT NULL,
+        target_role      TEXT,
+        department_id    TEXT REFERENCES departments(id) ON DELETE SET NULL,
+        attachment_url   TEXT,
+        is_pinned        INTEGER NOT NULL DEFAULT 0,
+        published_by     TEXT NOT NULL,
+        published_by_name TEXT,
+        created_at       TEXT NOT NULL,
+        updated_at       TEXT NOT NULL,
+        is_deleted       INTEGER NOT NULL DEFAULT 0,
+        sync_status      TEXT NOT NULL DEFAULT 'PENDING',
+        is_synced        INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+
     // ── sync_queue ───────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE sync_queue (
@@ -287,6 +308,24 @@ class FreshDatabaseCreator {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_teachers_user_id
       ON teachers(user_id)
+    ''');
+
+    // ── Notices indexes ───────────────────────────────────────────────────
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_notices_institute_id
+      ON notices(institute_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_notices_department_id
+      ON notices(department_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_notices_target_role
+      ON notices(target_role)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_notices_created_at
+      ON notices(created_at)
     ''');
 
     await MigrationHelpers.seedDepartments(db);

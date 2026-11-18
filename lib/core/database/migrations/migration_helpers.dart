@@ -139,6 +139,8 @@ class MigrationHelpers {
     {'code': 'lab.manage', 'module': 'lab', 'description': 'Manage lab inventory'},
     {'code': 'setting.manage', 'module': 'settings', 'description': 'Manage settings'},
     {'code': 'dashboard.view', 'module': 'dashboard', 'description': 'View dashboard'},
+    {'code': 'notice.view', 'module': 'notices', 'description': 'View the institute notice board and circulars'},
+    {'code': 'notice.manage', 'module': 'notices', 'description': 'Create, edit, pin, and delete notices'},
   ];
 
   /// Canonical role seed data: (name, code, description, isInstituteWide).
@@ -195,6 +197,17 @@ class MigrationHelpers {
     {'roleCode': 'assistant', 'permCode': 'student.view'},
     {'roleCode': 'assistant', 'permCode': 'attendance.view'},
     {'roleCode': 'assistant', 'permCode': 'dashboard.view'},
+    // Notices — view: all roles; manage: Admin, Principal, VP, HOD.
+    // Institute-wide roles (admin, principal, vice_principal) already receive
+    // every permission via the blanket _kPermissions loop above.
+    {'roleCode': 'hod', 'permCode': 'notice.view'},
+    {'roleCode': 'hod', 'permCode': 'notice.manage'},
+    {'roleCode': 'teacher', 'permCode': 'notice.view'},
+    {'roleCode': 'student', 'permCode': 'notice.view'},
+    {'roleCode': 'parent', 'permCode': 'notice.view'},
+    {'roleCode': 'accountant', 'permCode': 'notice.view'},
+    {'roleCode': 'lab_in_charge', 'permCode': 'notice.view'},
+    {'roleCode': 'assistant', 'permCode': 'notice.view'},
   ];
 
   /// Idempotently seeds the predefined permissions, roles and default grants.

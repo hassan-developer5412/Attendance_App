@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
+import 'package:attendance_app/core/models/notice.dart';
 import 'package:attendance_app/core/repositories/attendance_repository.dart';
 import 'package:attendance_app/core/repositories/leave_repository.dart';
 import 'package:attendance_app/core/repositories/student_repository.dart';
@@ -15,6 +16,7 @@ import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/state/notice_store.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Self-Service portal for students.
@@ -59,9 +61,9 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
   void initState() {
     super.initState();
     _tabController = TabController(
-      length: 3,
+      length: 4,
       vsync: this,
-      initialIndex: widget.initialTab.clamp(0, 2),
+      initialIndex: widget.initialTab.clamp(0, 3),
     );
     WidgetsBinding.instance.addPostFrameCallback((_) => _loadAllData());
   }
@@ -70,7 +72,7 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
   void didUpdateWidget(covariant StudentSelfViewContent oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.initialTab != oldWidget.initialTab) {
-      _tabController.animateTo(widget.initialTab.clamp(0, 2));
+      _tabController.animateTo(widget.initialTab.clamp(0, 3));
     }
   }
 
@@ -277,10 +279,13 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
         ),
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
+          tabAlignment: TabAlignment.start,
           tabs: const [
             Tab(icon: Icon(Icons.schedule_rounded), text: 'Schedule'),
             Tab(icon: Icon(Icons.fact_check_rounded), text: 'Attendance'),
             Tab(icon: Icon(Icons.event_busy_rounded), text: 'My Leaves'),
+            Tab(icon: Icon(Icons.campaign_rounded), text: 'Notices'),
           ],
         ),
       ),
@@ -301,6 +306,7 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
                 _buildScheduleTab(theme, colorScheme),
                 _buildAttendanceTab(theme, colorScheme),
                 _buildLeavesTab(theme, colorScheme),
+                _buildNoticesTab(theme, colorScheme),
               ],
             ),
     );
@@ -985,6 +991,320 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
             ),
           ],
         ),
+      ),
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Tab 3: Notice Board & Circulars (read-only student view)
+  // ---------------------------------------------------------------------------
+
+  Widget _buildNoticesTab(ThemeData theme, ColorScheme colorScheme) {
+    // Try to access NoticeStore — it may not be in the tree in some contexts.
+    NoticeStore? noticeStore;
+    try {
+      noticeStore = Provider.of<NoticeStore>(context, listen: true);
+    } catch (_) {}
+
+    if (noticeStore == null) {
+      return Center(
+        child: Text(
+          'Notice board unavailable.',
+          style: theme.textTheme.bodyMedium
+              ?.copyWith(color: colorScheme.onSurfaceVariant),
+        ),
+      );
+    }
+
+    final filtered = noticeStore.noticesForUser(
+      role: 'student',
+      departmentId: _department?.id,
+    );
+
+    final pinned = filtered.where((n) => n.isPinned).toList();
+    final unpinned = filtered.where((n) => !n.isPinned).toList();
+
+    if (filtered.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.campaign_outlined,
+                size: 56,
+                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'No notices for you right now.',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Check back later for institute announcements and circulars.',
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return RefreshIndicator(
+      onRefresh: _loadAllData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Pinned Notices ───────────────────────────────────────────
+            if (pinned.isNotEmpty) ...[
+              Row(
+                children: [
+                  Icon(Icons.push_pin_rounded,
+                      size: 16, color: colorScheme.primary),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Pinned',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: colorScheme.primary,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ...pinned.map((n) => _buildStudentNoticeCard(
+                    n,
+                    theme,
+                    colorScheme,
+                    isPinnedSection: true,
+                  )),
+              const SizedBox(height: 20),
+            ],
+
+            // ── All Notices ──────────────────────────────────────────────
+            if (unpinned.isNotEmpty) ...[
+              Text(
+                'Recent Announcements',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              ...unpinned.map((n) => _buildStudentNoticeCard(
+                    n,
+                    theme,
+                    colorScheme,
+                    isPinnedSection: false,
+                  )),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStudentNoticeCard(
+    Notice notice,
+    ThemeData theme,
+    ColorScheme colorScheme, {
+    required bool isPinnedSection,
+  }) {
+    final dateStr =
+        DateFormat('d MMM yyyy').format(notice.createdAt.toLocal());
+    final publisher = notice.publishedByName ?? 'Admin';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Card(
+        elevation: isPinnedSection ? 2 : 1,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+          side: BorderSide(
+            color: isPinnedSection
+                ? colorScheme.primary.withValues(alpha: 0.5)
+                : colorScheme.outlineVariant,
+            width: isPinnedSection ? 1.5 : 1,
+          ),
+        ),
+        color: isPinnedSection
+            ? colorScheme.primaryContainer.withValues(alpha: 0.15)
+            : null,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _showStudentNoticeDetail(context, notice, theme),
+          child: Padding(
+            padding: const EdgeInsets.all(14),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (isPinnedSection) ...[
+                      Padding(
+                        padding: const EdgeInsets.only(right: 6, top: 2),
+                        child: Icon(
+                          Icons.push_pin_rounded,
+                          size: 14,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                    ],
+                    Expanded(
+                      child: Text(
+                        notice.title,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                    // Date chip
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: Text(
+                        dateStr,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                          fontSize: 10,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                // Body preview
+                Text(
+                  notice.body,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Row(
+                  children: [
+                    Icon(Icons.person_outline_rounded,
+                        size: 12, color: colorScheme.onSurfaceVariant),
+                    const SizedBox(width: 4),
+                    Text(
+                      publisher,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                        fontSize: 11,
+                      ),
+                    ),
+                    if (notice.attachmentUrl != null &&
+                        notice.attachmentUrl!.isNotEmpty) ...[
+                      const SizedBox(width: 8),
+                      Icon(Icons.attachment_rounded,
+                          size: 12, color: colorScheme.primary),
+                      const SizedBox(width: 2),
+                      Text(
+                        'Attachment',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.primary,
+                          fontSize: 11,
+                        ),
+                      ),
+                    ],
+                    const Spacer(),
+                    Text(
+                      'Tap to read more →',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.primary,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showStudentNoticeDetail(
+      BuildContext context, Notice notice, ThemeData theme) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(
+          notice.title,
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.bold),
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                notice.body,
+                style: theme.textTheme.bodyMedium,
+              ),
+              if (notice.attachmentUrl != null &&
+                  notice.attachmentUrl!.isNotEmpty) ...[
+                const SizedBox(height: 12),
+                const Divider(),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.attachment_rounded,
+                      size: 16,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        notice.attachmentUrl!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.primary,
+                          decoration: TextDecoration.underline,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 10),
+              Text(
+                'By ${notice.publishedByName ?? "Admin"} · '
+                '${DateFormat("d MMM yyyy").format(notice.createdAt.toLocal())}',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }

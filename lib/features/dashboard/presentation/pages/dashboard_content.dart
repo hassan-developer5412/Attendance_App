@@ -8,9 +8,14 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
+import 'package:attendance_app/core/models/notice.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
+import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/state/notice_store.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
+import 'package:attendance_app/features/dashboard/presentation/widgets/notice_form_dialog.dart';
 
 /// Dashboard overview page driven entirely by real database data and academic hierarchy stats.
 class DashboardContent extends StatefulWidget {
@@ -350,11 +355,349 @@ class _DashboardContentState extends State<DashboardContent> {
               ),
               const SizedBox(height: 12),
               _buildRecentActivity(theme, colorScheme),
+              const SizedBox(height: 28),
+
+              // Notice Board & Circulars
+              _buildNoticeBoardSection(theme, colorScheme),
             ],
           ),
         ),
       ),
     );
+  }
+
+  // ---------------------------------------------------------------------------
+  // Notice Board Section
+  // ---------------------------------------------------------------------------
+
+  Widget _buildNoticeBoardSection(ThemeData theme, ColorScheme colorScheme) {
+    AuthStore? authStore;
+    try {
+      authStore = Provider.of<AuthStore>(context, listen: false);
+    } catch (_) {}
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section header
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                'Institute Notice Board & Circulars',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+            PermissionGuard(
+              permission: PermissionCodes.noticeManage,
+              fallback: const SizedBox.shrink(),
+              child: FilledButton.icon(
+                onPressed: () => _onPublishNotice(authStore),
+                icon: const Icon(Icons.add_rounded, size: 18),
+                label: const Text('Publish Notice'),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        // Notice list via Consumer
+        Consumer<NoticeStore>(
+          builder: (ctx, noticeStore, _) {
+            final allNotices = noticeStore.notices;
+            final pinned = allNotices.where((n) => n.isPinned).toList();
+            final rest = allNotices.where((n) => !n.isPinned).toList();
+            final display = [...pinned, ...rest].take(5).toList();
+
+            if (display.isEmpty) {
+              return Card(
+                elevation: 0,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  side: BorderSide(color: colorScheme.outlineVariant),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Center(
+                    child: Text(
+                      'No notices published yet.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            return Column(
+              children: display.map((notice) {
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _buildNoticeCard(
+                      notice, theme, colorScheme, noticeStore, authStore),
+                );
+              }).toList(),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNoticeCard(
+    Notice notice,
+    ThemeData theme,
+    ColorScheme colorScheme,
+    NoticeStore noticeStore,
+    AuthStore? authStore,
+  ) {
+    final canManage =
+        authStore?.hasPermission(PermissionCodes.noticeManage) ?? false;
+    final dateStr = DateFormat('d MMM yyyy').format(notice.createdAt.toLocal());
+    final publisher = notice.publishedByName ?? 'Admin';
+
+    return Card(
+      elevation: 1,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: notice.isPinned
+              ? theme.colorScheme.primary.withValues(alpha: 0.4)
+              : colorScheme.outlineVariant,
+        ),
+      ),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _showNoticeDetailDialog(context, notice, theme),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Pin icon
+              if (notice.isPinned) ...[
+                Padding(
+                  padding: const EdgeInsets.only(right: 8, top: 2),
+                  child: Icon(
+                    Icons.push_pin_rounded,
+                    size: 16,
+                    color: colorScheme.primary,
+                  ),
+                ),
+              ],
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notice.title,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      '$publisher • $dateStr',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (canManage) ...[
+                IconButton(
+                  icon: const Icon(Icons.edit_outlined, size: 18),
+                  tooltip: 'Edit notice',
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _onEditNotice(notice, noticeStore, authStore),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded, size: 18),
+                  tooltip: 'Delete notice',
+                  color: theme.colorScheme.error,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _onDeleteNotice(notice, noticeStore),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showNoticeDetailDialog(
+      BuildContext context, Notice notice, ThemeData theme) {
+    showDialog<void>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text(
+            notice.title,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  notice.body,
+                  style: theme.textTheme.bodyMedium,
+                ),
+                if (notice.attachmentUrl != null &&
+                    notice.attachmentUrl!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  const Divider(),
+                  const SizedBox(height: 4),
+                  Row(
+                    children: [
+                      Icon(
+                        Icons.attachment_rounded,
+                        size: 16,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          notice.attachmentUrl!,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                            decoration: TextDecoration.underline,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+                const SizedBox(height: 8),
+                Text(
+                  'Published by ${notice.publishedByName ?? "Admin"} on '
+                  '${DateFormat("d MMM yyyy").format(notice.createdAt.toLocal())}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _onPublishNotice(AuthStore? authStore) async {
+    final result = await NoticeFormDialog.showPublishDialog(context);
+    if (result == null || !mounted) return;
+
+    final noticeStore = Provider.of<NoticeStore>(context, listen: false);
+    final user = authStore?.currentUser;
+    final store = Provider.of<InstituteStore>(context, listen: false);
+
+    await noticeStore.addNotice(
+      instituteId: SupabaseConfig.instituteId.isNotEmpty
+          ? SupabaseConfig.instituteId
+          : AppConstants.defaultInstituteId,
+      title: result.title,
+      body: result.body,
+      publishedBy: user?.id ?? 'unknown',
+      publishedByName: user?.displayName,
+      targetRole: result.targetRole,
+      departmentId: result.departmentId,
+      attachmentUrl: result.attachmentUrl,
+      isPinned: result.isPinned,
+    );
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notice published successfully!'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+    // Silence unused variable warning.
+    store;
+  }
+
+  Future<void> _onEditNotice(
+      Notice notice, NoticeStore noticeStore, AuthStore? authStore) async {
+    final result =
+        await NoticeFormDialog.showPublishDialog(context, existing: notice);
+    if (result == null || !mounted) return;
+
+    final updated = notice.copyWith(
+      title: result.title,
+      body: result.body,
+      targetRole: result.targetRole,
+      departmentId: result.departmentId,
+      attachmentUrl: result.attachmentUrl,
+      isPinned: result.isPinned,
+      updatedAt: DateTime.now().toUtc(),
+    );
+
+    await noticeStore.updateNotice(updated);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notice updated.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
+  Future<void> _onDeleteNotice(Notice notice, NoticeStore noticeStore) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Notice'),
+        content:
+            Text('Are you sure you want to delete "${notice.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    await noticeStore.deleteNotice(notice.id);
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Notice deleted.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   Widget _buildStatCard({
