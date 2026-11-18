@@ -282,6 +282,30 @@ class FreshDatabaseCreator {
       )
     ''');
 
+    // ── timetable_slots ──────────────────────────────────────────────────────
+    batch.execute('''
+      CREATE TABLE IF NOT EXISTS timetable_slots (
+        id                TEXT PRIMARY KEY,
+        institute_id      TEXT NOT NULL,
+        academic_session_id TEXT,
+        class_id          TEXT NOT NULL,
+        subject_id        TEXT NOT NULL,
+        teacher_id        TEXT NOT NULL,
+        room_name         TEXT NOT NULL,
+        day_of_week       INTEGER NOT NULL,
+        period_slot       INTEGER NOT NULL,
+        start_time        TEXT NOT NULL,
+        end_time          TEXT NOT NULL,
+        is_lab            INTEGER NOT NULL DEFAULT 0,
+        created_at        TEXT NOT NULL,
+        updated_at        TEXT NOT NULL,
+        is_deleted        INTEGER NOT NULL DEFAULT 0,
+        sync_status       TEXT NOT NULL DEFAULT 'PENDING',
+        is_synced         INTEGER NOT NULL DEFAULT 0,
+        FOREIGN KEY (academic_session_id) REFERENCES academic_sessions (id) ON DELETE SET NULL
+      )
+    ''');
+
     // ── sync_queue ───────────────────────────────────────────────────────────
     batch.execute('''
       CREATE TABLE sync_queue (
@@ -326,6 +350,32 @@ class FreshDatabaseCreator {
     await db.execute('''
       CREATE INDEX IF NOT EXISTS idx_notices_created_at
       ON notices(created_at)
+    ''');
+
+    // ── Timetable slots indexes ───────────────────────────────────────────
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_timetable_slots_institute_id
+      ON timetable_slots(institute_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_timetable_slots_academic_session_id
+      ON timetable_slots(academic_session_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_timetable_slots_class_id
+      ON timetable_slots(class_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_timetable_slots_teacher_id
+      ON timetable_slots(teacher_id)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_timetable_slots_day_period
+      ON timetable_slots(day_of_week, period_slot)
+    ''');
+    await db.execute('''
+      CREATE INDEX IF NOT EXISTS idx_timetable_slots_is_deleted
+      ON timetable_slots(is_deleted)
     ''');
 
     await MigrationHelpers.seedDepartments(db);

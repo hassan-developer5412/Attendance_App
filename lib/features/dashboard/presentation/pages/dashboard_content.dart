@@ -8,18 +8,30 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
+import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/models/notice.dart';
+import 'package:attendance_app/core/models/timetable_slot.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/notice_store.dart';
+import 'package:attendance_app/core/state/timetable_store.dart';
 import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/notice_form_dialog.dart';
 
 /// Dashboard overview page driven entirely by real database data and academic hierarchy stats.
 class DashboardContent extends StatefulWidget {
-  const DashboardContent({super.key});
+  const DashboardContent({
+    super.key,
+    this.onNavigateToAttendance,
+  });
+
+  final void Function({
+    required String classId,
+    required String subjectId,
+    int? periodSlot,
+  })? onNavigateToAttendance;
 
   @override
   State<DashboardContent> createState() => _DashboardContentState();
@@ -106,6 +118,29 @@ class _DashboardContentState extends State<DashboardContent> {
     final colorScheme = theme.colorScheme;
     final store = context.watch<InstituteStore>();
     final currentSession = store.currentAcademicSession;
+    final authStore = context.watch<AuthStore>();
+    final currentUser = authStore.currentUser;
+    TimetableStore? timetableStore;
+    try {
+      timetableStore = Provider.of<TimetableStore>(context, listen: true);
+    } catch (_) {
+      timetableStore = null;
+    }
+
+    Teacher? currentTeacher;
+    if (currentUser != null) {
+      for (final t in store.teachers) {
+        if (!t.isDeleted && t.isActive) {
+          if (t.userId != null && t.userId == currentUser.id) {
+            currentTeacher = t;
+            break;
+          }
+        }
+      }
+    }
+    final nextSlot = currentTeacher != null && timetableStore != null
+        ? timetableStore.getCurrentOrNextSlotForTeacher(currentTeacher.id)
+        : null;
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
@@ -230,6 +265,18 @@ class _DashboardContentState extends State<DashboardContent> {
                 ),
               ),
               const SizedBox(height: 18),
+
+              // Teacher Next Class Banner
+              if (currentTeacher != null && nextSlot != null) ...[
+                _buildNextClassBanner(
+                  context: context,
+                  slot: nextSlot,
+                  instituteStore: store,
+                  theme: theme,
+                  colorScheme: colorScheme,
+                ),
+                const SizedBox(height: 18),
+              ],
 
               // Today's summary label
               Row(
@@ -698,6 +745,163 @@ class _DashboardContentState extends State<DashboardContent> {
         ),
       );
     }
+  }
+
+  Widget _buildNextClassBanner({
+    required BuildContext context,
+    required TimetableSlot slot,
+    required InstituteStore instituteStore,
+    required ThemeData theme,
+    required ColorScheme colorScheme,
+  }) {
+    final classModel = instituteStore.classById(slot.classId);
+    final className =
+        classModel?.displayName ?? instituteStore.classLabel(slot.classId);
+    final subject = instituteStore.subjectById(slot.subjectId);
+    final subjectName = subject != null
+        ? '${subject.name} (${subject.code})'
+        : slot.subjectId;
+    final badgeColor = slot.isLab ? colorScheme.tertiary : colorScheme.primary;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: colorScheme.primaryContainer.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: colorScheme.primary.withValues(alpha: 0.3),
+          width: 1.5,
+        ),
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isNarrow = constraints.maxWidth < 600;
+
+          final contentColumn = Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: badgeColor.withValues(alpha: 0.2),
+                      borderRadius: BorderRadius.circular(4),
+                      border:
+                          Border.all(color: badgeColor.withValues(alpha: 0.5)),
+                    ),
+                    child: Text(
+                      slot.isLab ? 'LAB SESSION' : 'THEORY CLASS',
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: badgeColor,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 10,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    'Period ${slot.periodSlot}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Your next class is $className — ${slot.roomName} at ${slot.formattedStartTime}',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subjectName,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          );
+
+          final markAttendanceBtn = FilledButton.icon(
+            key: const ValueKey('banner_mark_attendance_button'),
+            onPressed: () {
+              widget.onNavigateToAttendance?.call(
+                classId: slot.classId,
+                subjectId: slot.subjectId,
+                periodSlot: slot.periodSlot,
+              );
+            },
+            icon: const Icon(Icons.fingerprint_rounded, size: 20),
+            label: const Text('Mark Attendance'),
+            style: FilledButton.styleFrom(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            ),
+          );
+
+          if (isNarrow) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: colorScheme.primary,
+                        shape: BoxShape.circle,
+                      ),
+                      child: const Icon(
+                        Icons.schedule_rounded,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(child: contentColumn),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  child: markAttendanceBtn,
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: colorScheme.primary,
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.schedule_rounded,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: contentColumn),
+              const SizedBox(width: 16),
+              markAttendanceBtn,
+            ],
+          );
+        },
+      ),
+    );
   }
 
   Widget _buildStatCard({

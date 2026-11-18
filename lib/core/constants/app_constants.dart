@@ -38,7 +38,9 @@ class AppConstants {
   ///     sync_queue with those columns.
   /// 11 — Institute Notice Board & Circulars: `notices` table with
   ///     `notice.view` and `notice.manage` RBAC permissions.
-  static const int databaseVersion = 11;
+  /// 12 — Weekly Class & Lab Timetable: `timetable_slots` table with
+  ///     `timetable.view` and `timetable.manage` RBAC permissions.
+  static const int databaseVersion = 12;
 
   // Default admin credentials reference. No longer seeded on first launch
   // (fresh installs start with an empty `users` table); retained here so the
@@ -303,6 +305,14 @@ class PermissionCodes {
   /// Grants authority to create, edit, pin, and delete notices
   /// (Admin, Principal, Vice Principal, HOD).
   static const noticeManage = 'notice.manage';
+
+  // ┌── Weekly Class & Lab Timetable ──────────────────────────────────────
+  /// Grants read access to the class & lab timetable (all roles).
+  static const timetableView = 'timetable.view';
+
+  /// Grants authority to create, edit, and delete timetable slots
+  /// (Admin, Principal, Vice Principal, HOD).
+  static const timetableManage = 'timetable.manage';
 
   // ┌── Settings ──────────────────────────────────────────────────────────
   static const settingManage = 'setting.manage';

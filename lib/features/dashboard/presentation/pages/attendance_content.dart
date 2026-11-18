@@ -14,7 +14,16 @@ import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 /// Department → Academic Session → Class → Year → Subject → Date → Student List → Mark Attendance.
 /// Includes dual tabs: "Mark Attendance" and "Session History".
 class AttendanceContent extends StatefulWidget {
-  const AttendanceContent({super.key});
+  const AttendanceContent({
+    super.key,
+    this.initialClassId,
+    this.initialSubjectId,
+    this.initialPeriodSlot,
+  });
+
+  final String? initialClassId;
+  final String? initialSubjectId;
+  final int? initialPeriodSlot;
 
   @override
   State<AttendanceContent> createState() => _AttendanceContentState();
@@ -57,6 +66,35 @@ class _AttendanceContentState extends State<AttendanceContent>
 
   void _initDefaultSelections() {
     final instituteStore = context.read<InstituteStore>();
+
+    if (widget.initialClassId != null) {
+      final targetClass = instituteStore.classById(widget.initialClassId);
+      if (targetClass != null) {
+        _selectedDepartmentId = targetClass.departmentId ??
+            (instituteStore.activeDepartments.isNotEmpty
+                ? instituteStore.activeDepartments.first.id
+                : null);
+        _selectedSessionId = targetClass.academicSessionId ??
+            (instituteStore.currentAcademicSession?.id ??
+                (instituteStore.academicSessions.isNotEmpty
+                    ? instituteStore.academicSessions.first.id
+                    : null));
+        _selectedClassId = targetClass.id;
+        _selectedYear = targetClass.currentYear.isNotEmpty
+            ? targetClass.currentYear
+            : AcademicYears.firstYear;
+
+        if (widget.initialSubjectId != null) {
+          _selectedSubjectId = widget.initialSubjectId;
+          if (mounted) setState(() {});
+          _loadAttendanceRoster();
+          return;
+        } else {
+          _syncSubjects();
+          return;
+        }
+      }
+    }
 
     // 1. Department
     final depts = instituteStore.activeDepartments;

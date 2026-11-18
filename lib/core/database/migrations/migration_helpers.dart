@@ -141,6 +141,8 @@ class MigrationHelpers {
     {'code': 'dashboard.view', 'module': 'dashboard', 'description': 'View dashboard'},
     {'code': 'notice.view', 'module': 'notices', 'description': 'View the institute notice board and circulars'},
     {'code': 'notice.manage', 'module': 'notices', 'description': 'Create, edit, pin, and delete notices'},
+    {'code': 'timetable.view', 'module': 'timetable', 'description': 'View the class and lab timetable'},
+    {'code': 'timetable.manage', 'module': 'timetable', 'description': 'Create, edit, and delete timetable slots'},
   ];
 
   /// Canonical role seed data: (name, code, description, isInstituteWide).
@@ -208,6 +210,17 @@ class MigrationHelpers {
     {'roleCode': 'accountant', 'permCode': 'notice.view'},
     {'roleCode': 'lab_in_charge', 'permCode': 'notice.view'},
     {'roleCode': 'assistant', 'permCode': 'notice.view'},
+    // Timetable — view: all roles; manage: Admin, Principal, VP, HOD.
+    // Institute-wide roles (admin, principal, vice_principal) already receive
+    // every permission via the blanket _kPermissions loop above.
+    {'roleCode': 'hod', 'permCode': 'timetable.view'},
+    {'roleCode': 'hod', 'permCode': 'timetable.manage'},
+    {'roleCode': 'teacher', 'permCode': 'timetable.view'},
+    {'roleCode': 'student', 'permCode': 'timetable.view'},
+    {'roleCode': 'parent', 'permCode': 'timetable.view'},
+    {'roleCode': 'accountant', 'permCode': 'timetable.view'},
+    {'roleCode': 'lab_in_charge', 'permCode': 'timetable.view'},
+    {'roleCode': 'assistant', 'permCode': 'timetable.view'},
   ];
 
   /// Idempotently seeds the predefined permissions, roles and default grants.

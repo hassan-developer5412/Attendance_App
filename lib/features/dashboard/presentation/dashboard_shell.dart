@@ -18,6 +18,7 @@ import 'package:attendance_app/features/dashboard/presentation/pages/settings_co
 import 'package:attendance_app/features/dashboard/presentation/pages/students_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/teachers_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/lab_inventory_content.dart';
+import 'package:attendance_app/features/dashboard/presentation/pages/timetable_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/sync_status_pill.dart';
 import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
 import 'package:attendance_app/features/student_view/presentation/student_self_view_content.dart';
@@ -34,12 +35,20 @@ class DashboardShell extends StatefulWidget {
       return const ['schedule', 'my_attendance'];
     }
     if (role == UserRole.teacher) {
-      return const ['dashboard', 'attendance', 'classes', 'students', 'leave'];
+      return const [
+        'dashboard',
+        'attendance',
+        'timetable',
+        'classes',
+        'students',
+        'leave',
+      ];
     }
     if (role == UserRole.hod) {
       return const [
         'dashboard',
         'attendance',
+        'timetable',
         'classes',
         'teachers',
         'students',
@@ -52,6 +61,7 @@ class DashboardShell extends StatefulWidget {
     return const [
       'dashboard',
       'attendance',
+      'timetable',
       'classes',
       'teachers',
       'students',
@@ -73,6 +83,32 @@ class _DashboardShellState extends State<DashboardShell> {
   static const double _kSidebarWidth = 270;
 
   int _selectedIndex = 0;
+  String? _preselectedClassId;
+  String? _preselectedSubjectId;
+  int? _preselectedPeriodSlot;
+
+  void _navigateToAttendance({
+    required String classId,
+    required String subjectId,
+    int? periodSlot,
+  }) {
+    final authStore = context.read<AuthStore>();
+    final rbacStore = context.read<RBACStore>();
+    final activeItems = _getItemsForUser(authStore, rbacStore).where((item) {
+      if (item.permission == null) return true;
+      if (!rbacStore.isAuthenticated) return true;
+      return rbacStore.hasPermission(item.permission!);
+    }).toList();
+    final idx = activeItems.indexWhere((item) => item.id == 'attendance');
+    if (idx != -1) {
+      setState(() {
+        _preselectedClassId = classId;
+        _preselectedSubjectId = subjectId;
+        _preselectedPeriodSlot = periodSlot;
+        _selectedIndex = idx;
+      });
+    }
+  }
 
   @override
   void initState() {
@@ -114,14 +150,27 @@ class _DashboardShellState extends State<DashboardShell> {
           icon: Icons.dashboard_rounded,
           label: 'Dashboard',
           permission: PermissionCodes.dashboardView,
-          builder: () => const DashboardContent(),
+          builder: () => DashboardContent(
+            onNavigateToAttendance: _navigateToAttendance,
+          ),
         ),
         _MenuItem(
           id: 'attendance',
           icon: Icons.fingerprint_rounded,
           label: 'Attendance',
           permission: PermissionCodes.attendanceView,
-          builder: () => const AttendanceContent(),
+          builder: () => AttendanceContent(
+            initialClassId: _preselectedClassId,
+            initialSubjectId: _preselectedSubjectId,
+            initialPeriodSlot: _preselectedPeriodSlot,
+          ),
+        ),
+        _MenuItem(
+          id: 'timetable',
+          icon: Icons.calendar_month_rounded,
+          label: 'Timetable',
+          permission: PermissionCodes.timetableView,
+          builder: () => const TimetableContent(),
         ),
         _MenuItem(
           id: 'classes',
@@ -155,14 +204,27 @@ class _DashboardShellState extends State<DashboardShell> {
           icon: Icons.dashboard_rounded,
           label: 'Dashboard',
           permission: PermissionCodes.dashboardView,
-          builder: () => const DashboardContent(),
+          builder: () => DashboardContent(
+            onNavigateToAttendance: _navigateToAttendance,
+          ),
         ),
         _MenuItem(
           id: 'attendance',
           icon: Icons.fingerprint_rounded,
           label: 'Attendance',
           permission: PermissionCodes.attendanceView,
-          builder: () => const AttendanceContent(),
+          builder: () => AttendanceContent(
+            initialClassId: _preselectedClassId,
+            initialSubjectId: _preselectedSubjectId,
+            initialPeriodSlot: _preselectedPeriodSlot,
+          ),
+        ),
+        _MenuItem(
+          id: 'timetable',
+          icon: Icons.calendar_month_rounded,
+          label: 'Timetable',
+          permission: PermissionCodes.timetableView,
+          builder: () => const TimetableContent(),
         ),
         _MenuItem(
           id: 'classes',
@@ -223,14 +285,27 @@ class _DashboardShellState extends State<DashboardShell> {
         icon: Icons.dashboard_rounded,
         label: 'Dashboard',
         permission: PermissionCodes.dashboardView,
-        builder: () => const DashboardContent(),
+        builder: () => DashboardContent(
+          onNavigateToAttendance: _navigateToAttendance,
+        ),
       ),
       _MenuItem(
         id: 'attendance',
         icon: Icons.fingerprint_rounded,
         label: 'Attendance',
         permission: PermissionCodes.attendanceView,
-        builder: () => const AttendanceContent(),
+        builder: () => AttendanceContent(
+          initialClassId: _preselectedClassId,
+          initialSubjectId: _preselectedSubjectId,
+          initialPeriodSlot: _preselectedPeriodSlot,
+        ),
+      ),
+      _MenuItem(
+        id: 'timetable',
+        icon: Icons.calendar_month_rounded,
+        label: 'Timetable',
+        permission: PermissionCodes.timetableView,
+        builder: () => const TimetableContent(),
       ),
       _MenuItem(
         id: 'classes',
@@ -474,7 +549,14 @@ class _DashboardShellState extends State<DashboardShell> {
                   child: InkWell(
                     borderRadius: BorderRadius.circular(12),
                     onTap: () {
-                      setState(() => _selectedIndex = index);
+                      setState(() {
+                        _selectedIndex = index;
+                        if (items[index].id != 'attendance') {
+                          _preselectedClassId = null;
+                          _preselectedSubjectId = null;
+                          _preselectedPeriodSlot = null;
+                        }
+                      });
                       if (isDrawer) Navigator.of(context).pop();
                     },
                     child: AnimatedContainer(
@@ -606,10 +688,14 @@ class _DashboardShellState extends State<DashboardShell> {
                     body: AnimatedSwitcher(
                       duration: const Duration(milliseconds: 250),
                       child: KeyedSubtree(
-                        key: ValueKey(currentItem?.id ?? 'default'),
+                        key: ValueKey(
+                          '${currentItem?.id ?? 'default'}_${_preselectedClassId ?? ''}_${_preselectedSubjectId ?? ''}',
+                        ),
                         child: currentItem != null
                             ? currentItem.builder()
-                            : const DashboardContent(),
+                            : DashboardContent(
+                                onNavigateToAttendance: _navigateToAttendance,
+                              ),
                       ),
                     ),
                   ),
@@ -646,10 +732,14 @@ class _DashboardShellState extends State<DashboardShell> {
           body: AnimatedSwitcher(
             duration: const Duration(milliseconds: 250),
             child: KeyedSubtree(
-              key: ValueKey(currentItem?.id ?? 'default'),
+              key: ValueKey(
+                '${currentItem?.id ?? 'default'}_${_preselectedClassId ?? ''}_${_preselectedSubjectId ?? ''}',
+              ),
               child: currentItem != null
                   ? currentItem.builder()
-                  : const DashboardContent(),
+                  : DashboardContent(
+                      onNavigateToAttendance: _navigateToAttendance,
+                    ),
             ),
           ),
         );

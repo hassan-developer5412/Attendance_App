@@ -9,6 +9,7 @@ import 'package:attendance_app/core/state/lab_inventory_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
 import 'package:attendance_app/core/state/notice_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
+import 'package:attendance_app/core/state/timetable_store.dart';
 import 'package:attendance_app/core/state/user_store.dart';
 import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
@@ -24,6 +25,7 @@ void main() {
         instituteStore: InstituteStore(),
         labInventoryStore: LabInventoryStore(),
         noticeStore: NoticeStore(),
+        timetableStore: TimetableStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -56,6 +58,7 @@ void main() {
         instituteStore: InstituteStore(),
         labInventoryStore: LabInventoryStore(),
         noticeStore: NoticeStore(),
+        timetableStore: TimetableStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -80,6 +83,7 @@ void main() {
         instituteStore: InstituteStore(),
         labInventoryStore: LabInventoryStore(),
         noticeStore: NoticeStore(),
+        timetableStore: TimetableStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -104,6 +108,7 @@ void main() {
         instituteStore: InstituteStore(),
         labInventoryStore: LabInventoryStore(),
         noticeStore: NoticeStore(),
+        timetableStore: TimetableStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -136,6 +141,7 @@ void main() {
         instituteStore: InstituteStore(),
         labInventoryStore: LabInventoryStore(),
         noticeStore: NoticeStore(),
+        timetableStore: TimetableStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -162,6 +168,7 @@ void main() {
         instituteStore: InstituteStore(),
         labInventoryStore: LabInventoryStore(),
         noticeStore: NoticeStore(),
+        timetableStore: TimetableStore(),
         attendanceStore: AttendanceStore(),
         leaveStore: LeaveStore(),
         rbacStore: RBACStore(),
@@ -197,4 +204,6 @@ void main() {
     });
   });
 }
+
+
 

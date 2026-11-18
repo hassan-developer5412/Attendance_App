@@ -215,6 +215,7 @@ class Teacher {
     this.employeeCode,
     this.designation = 'Instructor',
     this.departmentId,
+    this.userId,
     DateTime? createdAt,
     DateTime? updatedAt,
     this.syncStatus = SyncStatus.pending,
@@ -238,6 +239,9 @@ class Teacher {
   String? employeeCode;
   String designation;
   String? departmentId;
+
+  /// Optional foreign key pointing to `users.id` when linked to a user account.
+  final String? userId;
 
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -269,6 +273,7 @@ class Teacher {
       employeeCode: map['employee_code'] as String?,
       designation: (map['designation'] as String?) ?? 'Instructor',
       departmentId: _resolveId(map['department_id'], 'departments'),
+      userId: map['user_id'] as String?,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)?.toUtc()
           : null,
@@ -294,6 +299,7 @@ class Teacher {
       'employee_code': employeeCode ?? 'FAC-${id.substring(0, 8)}',
       'designation': designation,
       'department_id': departmentId,
+      'user_id': userId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -314,6 +320,7 @@ class Teacher {
       'username': username,
       'class_id': classId,
       'is_active': isActive,
+      'user_id': userId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'sync_status': syncStatus.value,
@@ -336,6 +343,7 @@ class Teacher {
       'employee_code': employeeCode ?? 'FAC-${id.substring(0, 8)}',
       'designation': designation,
       'department_id': departmentId,
+      'user_id': userId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
       'is_deleted': isDeleted,
@@ -354,6 +362,7 @@ class Teacher {
     String? employeeCode,
     String? designation,
     String? departmentId,
+    String? userId,
     DateTime? createdAt,
     DateTime? updatedAt,
     SyncStatus? syncStatus,
@@ -371,6 +380,7 @@ class Teacher {
       employeeCode: employeeCode ?? this.employeeCode,
       designation: designation ?? this.designation,
       departmentId: departmentId ?? this.departmentId,
+      userId: userId ?? this.userId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       syncStatus: syncStatus ?? this.syncStatus,

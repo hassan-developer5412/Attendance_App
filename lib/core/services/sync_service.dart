@@ -14,6 +14,7 @@ import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/models/lab_inventory.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/models/notice.dart';
+import 'package:attendance_app/core/models/timetable_slot.dart';
 import 'package:attendance_app/core/models/sync_queue_item.dart';
 import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/sync_queue_repository.dart';
@@ -131,6 +132,7 @@ class SyncService with ChangeNotifier {
     'leave_requests': 'id',
     'lab_inventory': 'id',
     'notices': 'id',
+    'timetable_slots': 'id',
   };
 
   /// Row → Supabase payload converters. Keys double as the list of tables
@@ -152,6 +154,7 @@ class SyncService with ChangeNotifier {
     'leave_requests': (row) => LeaveRequest.fromMap(row).toSupabaseJson(),
     'lab_inventory': (row) => LabInventory.fromMap(row).toSupabaseJson(),
     'notices': (row) => Notice.fromMap(row).toSupabaseJson(),
+    'timetable_slots': (row) => TimetableSlot.fromMap(row).toSupabaseJson(),
   };
 
   // ===========================================================================
@@ -776,6 +779,7 @@ class SyncService with ChangeNotifier {
     'leave_requests',
     'lab_inventory',
     'notices',
+    'timetable_slots',
   ];
 
   /// Pulls incremental changes from Supabase into SQLite for every table in

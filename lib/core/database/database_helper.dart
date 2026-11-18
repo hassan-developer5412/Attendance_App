@@ -7,6 +7,7 @@ import 'package:attendance_app/core/database/migrations/schema_migration_v8.dart
 import 'package:attendance_app/core/database/migrations/schema_migration_v9.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v10.dart';
 import 'package:attendance_app/core/database/migrations/schema_migration_v11.dart';
+import 'package:attendance_app/core/database/migrations/schema_migration_v12.dart';
 
 class DatabaseHelper {
   static final DatabaseHelper instance = DatabaseHelper._init();
@@ -34,7 +35,7 @@ class DatabaseHelper {
   Future<Database> _initDB(String filePath) async {
     final db = await openDatabase(
       filePath,
-      version: 11,
+      version: 12,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
       onDowngrade: _onDowngrade,
@@ -165,6 +166,12 @@ class DatabaseHelper {
       // v11 adds the `notices` table and seeds notice.view / notice.manage
       // RBAC permissions with their role grants.
       await SchemaMigrationV11.execute(db);
+      await MigrationHelpers.seedRolesAndPermissions(db);
+    }
+    if (oldVersion < 12) {
+      // v12 adds the `timetable_slots` table and seeds timetable.view /
+      // timetable.manage RBAC permissions with their role grants.
+      await SchemaMigrationV12.execute(db);
       await MigrationHelpers.seedRolesAndPermissions(db);
     }
     await db.execute('PRAGMA foreign_keys = ON;');
