@@ -23,13 +23,15 @@ class InstituteStore extends ChangeNotifier {
     SubjectRepository? subjectRepository,
     DepartmentRepository? departmentRepository,
     AcademicSessionRepository? academicSessionRepository,
+    DatabaseHelper? databaseHelper,
   })  : _classRepository = classRepository ?? ClassRepository(),
         _facultyRepository = facultyRepository ?? FacultyRepository(),
         _studentRepository = studentRepository ?? StudentRepository(),
         _subjectRepository = subjectRepository ?? SubjectRepository(),
         _departmentRepository = departmentRepository ?? DepartmentRepository(),
         _academicSessionRepository =
-            academicSessionRepository ?? AcademicSessionRepository();
+            academicSessionRepository ?? AcademicSessionRepository(),
+        _databaseHelper = databaseHelper ?? DatabaseHelper.instance;
 
   final ClassRepository _classRepository;
   final FacultyRepository _facultyRepository;
@@ -37,6 +39,7 @@ class InstituteStore extends ChangeNotifier {
   final SubjectRepository _subjectRepository;
   final DepartmentRepository _departmentRepository;
   final AcademicSessionRepository _academicSessionRepository;
+  final DatabaseHelper _databaseHelper;
 
   final List<Department> _departments = [];
   final List<AcademicSession> _academicSessions = [];
@@ -44,6 +47,12 @@ class InstituteStore extends ChangeNotifier {
   final List<Teacher> _teachers = [];
   final List<Student> _students = [];
   final List<Subject> _subjects = [];
+
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  bool get isLoading => _isLoading;
+  String? get errorMessage => _errorMessage;
 
   List<Department> get departments => List.unmodifiable(_departments);
   List<Department> get activeDepartments =>
@@ -71,49 +80,79 @@ class InstituteStore extends ChangeNotifier {
 
   /// Loads all data from the database. Call once during app startup.
   Future<void> init() async {
-    // 1. Departments
-    var depts = await _departmentRepository.getAll();
-    if (depts.isEmpty) {
-      final db = await DatabaseHelper.instance.database;
-      await MigrationHelpers.seedDepartments(db);
-      depts = await _departmentRepository.getAll();
-    }
-    _departments
-      ..clear()
-      ..addAll(depts);
-
-    // 2. Academic Sessions
-    var sessions = await _academicSessionRepository.getAll();
-    if (sessions.isEmpty) {
-      final db = await DatabaseHelper.instance.database;
-      await MigrationHelpers.seedAcademicSessions(db);
-      sessions = await _academicSessionRepository.getAll();
-    }
-    _academicSessions
-      ..clear()
-      ..addAll(sessions);
-
-    // 3. Classes
-    _classes
-      ..clear()
-      ..addAll(await _classRepository.getAll());
-
-    // 4. Teachers
-    _teachers
-      ..clear()
-      ..addAll(await _facultyRepository.getAll());
-
-    // 5. Students
-    _students
-      ..clear()
-      ..addAll(await _studentRepository.getAll());
-
-    // 6. Subjects
-    _subjects
-      ..clear()
-      ..addAll(await _subjectRepository.getAll());
-
+    _isLoading = true;
+    _errorMessage = null;
     notifyListeners();
+
+    try {
+      // 1. Departments
+      var depts = await _departmentRepository
+          .getAll()
+          .timeout(const Duration(seconds: 10));
+      if (depts.isEmpty) {
+        final db = await _databaseHelper.database
+            .timeout(const Duration(seconds: 10));
+        await MigrationHelpers.seedDepartments(db)
+            .timeout(const Duration(seconds: 10));
+        depts = await _departmentRepository
+            .getAll()
+            .timeout(const Duration(seconds: 10));
+      }
+      _departments
+        ..clear()
+        ..addAll(depts);
+
+      // 2. Academic Sessions
+      var sessions = await _academicSessionRepository
+          .getAll()
+          .timeout(const Duration(seconds: 10));
+      if (sessions.isEmpty) {
+        final db = await _databaseHelper.database
+            .timeout(const Duration(seconds: 10));
+        await MigrationHelpers.seedAcademicSessions(db)
+            .timeout(const Duration(seconds: 10));
+        sessions = await _academicSessionRepository
+            .getAll()
+            .timeout(const Duration(seconds: 10));
+      }
+      _academicSessions
+        ..clear()
+        ..addAll(sessions);
+
+      // 3. Classes
+      _classes
+        ..clear()
+        ..addAll(await _classRepository
+            .getAll()
+            .timeout(const Duration(seconds: 10)));
+
+      // 4. Teachers
+      _teachers
+        ..clear()
+        ..addAll(await _facultyRepository
+            .getAll()
+            .timeout(const Duration(seconds: 10)));
+
+      // 5. Students
+      _students
+        ..clear()
+        ..addAll(await _studentRepository
+            .getAll()
+            .timeout(const Duration(seconds: 10)));
+
+      // 6. Subjects
+      _subjects
+        ..clear()
+        ..addAll(await _subjectRepository
+            .getAll()
+            .timeout(const Duration(seconds: 10)));
+    } catch (e, stack) {
+      _errorMessage = 'Failed to load institute data: $e';
+      debugPrint('InstituteStore.init error: $e\n$stack');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   // ---------------------------------------------------------------------------

@@ -255,8 +255,8 @@ class AttendanceRepository {
     final db = await _dbHelper.database;
     final today = AppDateUtils.dateKey(DateTime.now());
     final result = await db.rawQuery('''
-      SELECT COUNT(*) AS cnt FROM attendanceRecords
-      WHERE date = ? AND status = 'late' AND isDeleted = 0
+      SELECT COUNT(*) AS cnt FROM attendance_records
+      WHERE date = ? AND status = 'late' AND is_deleted = 0
     ''', [today]);
     return (result.first['cnt'] as int?) ?? 0;
   }
@@ -265,8 +265,8 @@ class AttendanceRepository {
     final db = await _dbHelper.database;
     final today = AppDateUtils.dateKey(DateTime.now());
     final rows = await db.rawQuery('''
-      SELECT status, COUNT(*) AS cnt FROM attendanceRecords
-      WHERE date = ? AND isDeleted = 0
+      SELECT status, COUNT(*) AS cnt FROM attendance_records
+      WHERE date = ? AND is_deleted = 0
       GROUP BY status
     ''', [today]);
     final map = <String, int>{};
@@ -281,8 +281,8 @@ class AttendanceRepository {
     final start = DateTime.now().subtract(const Duration(days: 7));
     final startKey = AppDateUtils.dateKey(start);
     final rows = await db.rawQuery('''
-      SELECT date, COUNT(*) AS cnt FROM attendanceRecords
-      WHERE date >= ? AND isDeleted = 0
+      SELECT date, COUNT(*) AS cnt FROM attendance_records
+      WHERE date >= ? AND is_deleted = 0
       GROUP BY date ORDER BY date ASC
     ''', [startKey]);
     return rows.map((r) => {r['date'] as String: r['cnt'] as int}).toList();
@@ -293,8 +293,8 @@ class AttendanceRepository {
     final now = DateTime.now();
     final startKey = '${now.year}-${now.month.toString().padLeft(2, '0')}-01';
     final rows = await db.rawQuery('''
-      SELECT status, COUNT(*) AS cnt FROM attendanceRecords
-      WHERE date >= ? AND isDeleted = 0
+      SELECT status, COUNT(*) AS cnt FROM attendance_records
+      WHERE date >= ? AND is_deleted = 0
       GROUP BY status
     ''', [startKey]);
     final map = <AttendanceStatus, int>{};
@@ -310,7 +310,7 @@ class AttendanceRepository {
     final db = await _dbHelper.database;
     final rows = await db.rawQuery('''
       SELECT * FROM attendance_records
-      WHERE isDeleted = 0
+      WHERE is_deleted = 0
       ORDER BY created_at DESC LIMIT ?
     ''', [limit]);
     return rows.map(AttendanceRecord.fromMap).toList();
@@ -323,8 +323,8 @@ class AttendanceRepository {
     final startKey = AppDateUtils.dateKey(startMonth);
     final rows = await db.rawQuery('''
       SELECT strftime('%Y-%m', date) AS month, COUNT(*) AS cnt
-      FROM attendanceRecords
-      WHERE date >= ? AND isDeleted = 0
+      FROM attendance_records
+      WHERE date >= ? AND is_deleted = 0
       GROUP BY month ORDER BY month ASC
     ''', [startKey]);
     return rows;

@@ -153,61 +153,71 @@ class _LoginScreenState extends State<LoginScreen> {
 
     setState(() => _isLoading = true);
 
-    final identifier = _identifierController.text.trim();
-    final authStore = context.read<AuthStore>();
-    final user = await authStore.login(identifier, password);
-
-    if (!mounted) return;
-
-    setState(() => _isLoading = false);
-
-    if (user != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Welcome back, ${user.displayName}!'),
-          backgroundColor: Colors.green.shade700,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+    try {
+      final identifier = _identifierController.text.trim();
+      final authStore = context.read<AuthStore>();
+      final user = await authStore.login(identifier, password);
 
       if (!mounted) return;
 
-      // Default-password accounts must change their password before the
-      // dashboard becomes accessible.
-      if (authStore.requirePasswordChange) {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) => const PasswordChangeScreen(),
-          ),
-        );
-      } else {
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute<void>(
-            builder: (_) => const HomeScreen(),
-          ),
-        );
-      }
-    } else {
-      if (kDebugMode && identifier.toLowerCase() == 'admin') {
-        final messenger = ScaffoldMessenger.of(context);
-        final navigator = Navigator.of(context);
-        final devUser = await authStore.devBypassLogin();
-        if (!mounted) return;
-        messenger.showSnackBar(
+      if (user != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Ã¢Å¡Â¡ Signed in as ${devUser.displayName} (Dev Bypass)'),
-            backgroundColor: Colors.teal.shade700,
+            content: Text('Welcome back, ${user.displayName}!'),
+            backgroundColor: Colors.green.shade700,
             behavior: SnackBarBehavior.floating,
           ),
         );
-        navigator.pushReplacement(
-          MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
-        );
-        return;
+
+        if (!mounted) return;
+
+        // Default-password accounts must change their password before the
+        // dashboard becomes accessible.
+        if (authStore.requirePasswordChange) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (_) => const PasswordChangeScreen(),
+            ),
+          );
+        } else {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute<void>(
+              builder: (_) => const HomeScreen(),
+            ),
+          );
+        }
+      } else {
+        if (kDebugMode && identifier.toLowerCase() == 'admin') {
+          final messenger = ScaffoldMessenger.of(context);
+          final navigator = Navigator.of(context);
+          final devUser = await authStore.devBypassLogin();
+          if (!mounted) return;
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('⚡ Signed in as ${devUser.displayName} (Dev Bypass)'),
+              backgroundColor: Colors.teal.shade700,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+          navigator.pushReplacement(
+            MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+          );
+          return;
+        }
+        setState(() {
+          _errorMessage = authStore.lastAuthError;
+        });
       }
-      setState(() {
-        _errorMessage = authStore.lastAuthError;
-      });
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Login failed: $e';
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 

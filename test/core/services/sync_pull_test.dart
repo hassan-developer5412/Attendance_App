@@ -112,9 +112,9 @@ void main() {
     );
 
     expect(normalized!['is_suspended'], 1);
-    expect(normalized!['is_deleted'], 0);
-    expect(normalized!['sync_status'], 'SYNCED');
-    expect(normalized!['is_synced'], 1);
+    expect(normalized['is_deleted'], 0);
+    expect(normalized['sync_status'], 'SYNCED');
+    expect(normalized['is_synced'], 1);
   });
 
   test('normalizeRemoteRowForSqlite drops Supabase-only columns', () async {
@@ -135,7 +135,7 @@ void main() {
     );
 
     expect(normalized!.containsKey('local_id'), isFalse);
-    expect(normalized!['id'], 'user-1');
+    expect(normalized['id'], 'user-1');
   });
 
   test('normalizeRemoteRowForSqlite preserves is_deleted soft-delete flag', () async {
@@ -254,7 +254,7 @@ void main() {
 
     expect(normalized, isNotNull);
     expect(normalized!['permission_code'], 'view_reports');
-    expect(normalized!['role_id'], 'role-admin');
+    expect(normalized['role_id'], 'role-admin');
   });
 
   // -----------------------------------------------------------------------

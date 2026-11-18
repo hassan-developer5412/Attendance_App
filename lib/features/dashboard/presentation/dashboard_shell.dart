@@ -1,7 +1,11 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
@@ -69,6 +73,17 @@ class _DashboardShellState extends State<DashboardShell> {
   static const double _kSidebarWidth = 270;
 
   int _selectedIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 3. Runs SyncService in the background without blocking the UI
+    if (SupabaseConfig.isReady) {
+      unawaited(SyncService.instance.pullAll().catchError((e) {
+        debugPrint('DashboardShell background sync failed: $e');
+      }));
+    }
+  }
 
   List<_MenuItem> _getItemsForUser(AuthStore authStore, RBACStore rbacStore) {
     final role = authStore.currentUserRole ?? UserRole.teacher;
@@ -318,7 +333,14 @@ class _DashboardShellState extends State<DashboardShell> {
     );
 
     if (shouldLogout == true && mounted) {
-      await context.read<AuthStore>().logout();
+      try {
+        await context
+            .read<AuthStore>()
+            .logout()
+            .timeout(const Duration(seconds: 10));
+      } catch (e) {
+        debugPrint('Logout failed in DashboardShell: $e');
+      }
       if (!mounted) return;
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute<void>(builder: (_) => const LoginScreen()),

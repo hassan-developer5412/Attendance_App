@@ -113,6 +113,14 @@ class AuthStore extends ChangeNotifier {
   }
 
   User? _currentUser;
+  bool _isLoading = false;
+  String? _errorMessage;
+
+  /// Whether an authentication or session data loading operation is in progress.
+  bool get isLoading => _isLoading;
+
+  /// General error message for store operations.
+  String? get errorMessage => _errorMessage;
 
   /// Reason for the most recent login failure. Safe to surface to the user:
   /// it distinguishes suspended / locked accounts from invalid credentials
@@ -168,78 +176,100 @@ class AuthStore extends ChangeNotifier {
   /// from `SharedPreferences` into flutter_secure_storage and clears the
   /// plaintext keys.
   Future<void> init() async {
-    final prefs = await SharedPreferences.getInstance();
-
-    // Restore the centralized tenant id learned at a previous login.
-    final savedInstituteId = prefs.getString(AppConstants.prefInstituteId);
-    if (savedInstituteId != null && savedInstituteId.isNotEmpty) {
-      SupabaseConfig.instituteId = savedInstituteId;
-    }
-
-    // One-time migration: move any legacy plaintext session out of
-    // SharedPreferences and into flutter_secure_storage, then clear the
-    // plaintext keys.
-    await _migrateLegacySession(prefs);
-
-    final userIdStr = await _secureStorage.read(key: _sessionKeyUserId);
-    if (userIdStr == null || userIdStr.isEmpty) return;
-
-    // Session TTL validation: reject restored sessions that have exceeded
-    // either the absolute expiry or the idle timeout.
-    final expiresAtStr = await _secureStorage.read(key: _sessionKeyExpiresAt);
-    final lastActivityStr =
-        await _secureStorage.read(key: _sessionKeyLastActivity);
-    final now = DateTime.now().toUtc();
-
-    final expiresAt = expiresAtStr != null
-        ? DateTime.tryParse(expiresAtStr)?.toUtc()
-        : null;
-    final lastActivity = lastActivityStr != null
-        ? DateTime.tryParse(lastActivityStr)?.toUtc()
-        : null;
-
-    final absoluteExpired =
-        expiresAt != null && now.isAfter(expiresAt);
-    final idleExpired =
-        lastActivity != null && now.difference(lastActivity) > _idleTtl;
-
-    if (absoluteExpired || idleExpired) {
-      await logout(clearSecure: true);
-      return;
-    }
-
-    final user = await _userRepository.getById(userIdStr);
-    if (user == null) {
-      // Session referred to an account that no longer exists locally.
-      await logout(clearSecure: true);
-      return;
-    }
-
-    // Guard: the account must still be active in the local database. This
-    // catches suspensions (deletions / lockouts) that were applied while the
-    // app was offline â€” sync writes them to SQLite, so checking here blocks
-    // access immediately even without a network connection.
-    if (user.isDeleted || user.isSuspended || user.isLocked) {
-      await logout(clearSecure: true);
-      _lastAuthError = user.isDeleted
-          ? 'This account is no longer active.'
-          : user.isSuspended
-              ? 'This account is suspended. Contact your institute administrator.'
-              : 'This account is temporarily locked.';
-      notifyListeners();
-      return;
-    }
-
-    _currentUser = user;
-    try {
-      await _rbacStore?.loadForUser(user.id);
-    } catch (_) {}
-    // Refresh idle activity on restore.
-    await _secureStorage.write(
-      key: _sessionKeyLastActivity,
-      value: now.toIso8601String(),
-    );
+    _isLoading = true;
+    _errorMessage = null;
     notifyListeners();
+
+    try {
+      final prefs = await SharedPreferences.getInstance()
+          .timeout(const Duration(seconds: 10));
+
+      // Restore the centralized tenant id learned at a previous login.
+      final savedInstituteId = prefs.getString(AppConstants.prefInstituteId);
+      if (savedInstituteId != null && savedInstituteId.isNotEmpty) {
+        SupabaseConfig.instituteId = savedInstituteId;
+      }
+
+      // One-time migration: move any legacy plaintext session out of
+      // SharedPreferences and into flutter_secure_storage, then clear the
+      // plaintext keys.
+      await _migrateLegacySession(prefs)
+          .timeout(const Duration(seconds: 10));
+
+      final userIdStr = await _secureStorage
+          .read(key: _sessionKeyUserId)
+          .timeout(const Duration(seconds: 10));
+      if (userIdStr == null || userIdStr.isEmpty) return;
+
+      // Session TTL validation: reject restored sessions that have exceeded
+      // either the absolute expiry or the idle timeout.
+      final expiresAtStr = await _secureStorage
+          .read(key: _sessionKeyExpiresAt)
+          .timeout(const Duration(seconds: 10));
+      final lastActivityStr = await _secureStorage
+          .read(key: _sessionKeyLastActivity)
+          .timeout(const Duration(seconds: 10));
+      final now = DateTime.now().toUtc();
+
+      final expiresAt = expiresAtStr != null
+          ? DateTime.tryParse(expiresAtStr)?.toUtc()
+          : null;
+      final lastActivity = lastActivityStr != null
+          ? DateTime.tryParse(lastActivityStr)?.toUtc()
+          : null;
+
+      final absoluteExpired =
+          expiresAt != null && now.isAfter(expiresAt);
+      final idleExpired =
+          lastActivity != null && now.difference(lastActivity) > _idleTtl;
+
+      if (absoluteExpired || idleExpired) {
+        await logout(clearSecure: true);
+        return;
+      }
+
+      final user = await _userRepository
+          .getById(userIdStr)
+          .timeout(const Duration(seconds: 10));
+      if (user == null) {
+        // Session referred to an account that no longer exists locally.
+        await logout(clearSecure: true);
+        return;
+      }
+
+      // Guard: the account must still be active in the local database. This
+      // catches suspensions (deletions / lockouts) that were applied while the
+      // app was offline — sync writes them to SQLite, so checking here blocks
+      // access immediately even without a network connection.
+      if (user.isDeleted || user.isSuspended || user.isLocked) {
+        await logout(clearSecure: true);
+        _lastAuthError = user.isDeleted
+            ? 'This account is no longer active.'
+            : user.isSuspended
+                ? 'This account is suspended. Contact your institute administrator.'
+                : 'This account is temporarily locked.';
+        return;
+      }
+
+      _currentUser = user;
+      try {
+        await _rbacStore?.loadForUser(user.id)
+            .timeout(const Duration(seconds: 10));
+      } catch (_) {}
+      // Refresh idle activity on restore.
+      await _secureStorage
+          .write(
+            key: _sessionKeyLastActivity,
+            value: now.toIso8601String(),
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (e, stack) {
+      _errorMessage = 'Session restoration error: $e';
+      debugPrint('AuthStore.init error: $e\n$stack');
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
   }
 
   /// Attempts to authenticate with [identifier] and [password].
@@ -254,87 +284,126 @@ class AuthStore extends ChangeNotifier {
   /// refreshed. Returns the authenticated user, or `null` when the attempt
   /// failed â€” inspect [lastAuthError] for a user-safe reason.
   Future<User?> login(String identifier, String password) async {
+    _isLoading = true;
     _lastAuthError = null;
+    notifyListeners();
 
-    var result = await _userRepository.authenticate(identifier, password);
-    if (result == null) {
-      // User not found locally — pull canonical data from Supabase in case
-      // the user exists in the cloud but hasn't been synced down yet, then
-      // try the local lookup one more time before failing.
-      if (SupabaseConfig.isReady) {
-        await SyncService.instance.pullAll();
+    try {
+      var result = await _userRepository
+          .authenticate(identifier, password)
+          .timeout(const Duration(seconds: 10));
+      if (result == null) {
+        // User not found locally — pull canonical data from Supabase in case
+        // the user exists in the cloud but hasn't been synced down yet, then
+        // try the local lookup one more time before failing.
+        if (SupabaseConfig.isReady) {
+          try {
+            await SyncService.instance
+                .pullAll()
+                .timeout(const Duration(seconds: 10));
+          } catch (e) {
+            debugPrint('SyncService.pullAll failed or timed out: $e');
+          }
+        }
+        final retry = await _userRepository
+            .authenticate(identifier, password)
+            .timeout(const Duration(seconds: 10));
+        if (retry == null) {
+          _lastAuthError = 'Invalid identifier or password.';
+          return null;
+        }
+        result = retry;
       }
-      final retry = await _userRepository.authenticate(identifier, password);
-      if (retry == null) {
-        _lastAuthError = 'Invalid identifier or password.';
+
+      final user = result.user;
+      if (result.isSuspended || user.isSuspended) {
+        _lastAuthError =
+            'This account is suspended. Contact your institute administrator.';
         return null;
       }
-      result = retry;
-    }
+      if (result.isLocked || user.isLocked) {
+        final unlockedAt = user.lockedUntil != null
+            ? DateTime.tryParse(user.lockedUntil!)?.toUtc()
+            : null;
+        _lastAuthError = unlockedAt != null
+            ? 'Too many failed attempts. This account is locked until '
+                '${unlockedAt.hour.toString().padLeft(2, '0')}:'
+                '${unlockedAt.minute.toString().padLeft(2, '0')}. Try again later.'
+            : 'Too many failed attempts. This account is temporarily locked.';
+        return null;
+      }
 
-    final user = result.user;
-    if (result.isSuspended || user.isSuspended) {
-      _lastAuthError =
-          'This account is suspended. Contact your institute administrator.';
+      // Best-effort cloud sign-in with 10-second timeout; never blocks or fails local session.
+      try {
+        await _signInToSupabase(user, password)
+            .timeout(const Duration(seconds: 10));
+      } catch (e) {
+        debugPrint('Supabase sign-in timed out or failed: $e');
+      }
+
+      final now = DateTime.now().toUtc();
+      final expiresAt = now.add(_absoluteTtl);
+
+      await _userRepository
+          .updateSessionTimestamps(
+            userId: user.id,
+            lastLoginAt: now,
+            sessionExpiresAt: expiresAt,
+          )
+          .timeout(const Duration(seconds: 10));
+
+      _currentUser = user;
+
+      // Load the signed-in user's RBAC grants (roles, departments, permissions).
+      try {
+        await _rbacStore
+            ?.loadForUser(user.id)
+            .timeout(const Duration(seconds: 10));
+      } catch (e) {
+        debugPrint('RBAC store loadForUser error: $e');
+      }
+
+      await _secureStorage
+          .write(
+            key: _sessionKeyUserId,
+            value: user.id,
+          )
+          .timeout(const Duration(seconds: 10));
+      await _secureStorage
+          .write(
+            key: _sessionKeyUserRole,
+            value: user.role.value,
+          )
+          .timeout(const Duration(seconds: 10));
+      await _secureStorage
+          .write(
+            key: _sessionKeyExpiresAt,
+            value: expiresAt.toIso8601String(),
+          )
+          .timeout(const Duration(seconds: 10));
+      await _secureStorage
+          .write(
+            key: _sessionKeyLastActivity,
+            value: now.toIso8601String(),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      // Seed cloud sync under the newly verified session. Runs in the background
+      // without blocking the local session.
+      if (SupabaseConfig.isReady) {
+        unawaited(SyncService.instance.flushSyncQueue());
+        unawaited(SyncService.instance.pullAll());
+      }
+
+      return _currentUser;
+    } catch (e, stack) {
+      _lastAuthError = 'Login error: $e';
+      debugPrint('AuthStore.login error: $e\n$stack');
       return null;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-    if (result.isLocked || user.isLocked) {
-      final unlockedAt = user.lockedUntil != null
-          ? DateTime.tryParse(user.lockedUntil!)?.toUtc()
-          : null;
-      _lastAuthError = unlockedAt != null
-          ? 'Too many failed attempts. This account is locked until '
-              '${unlockedAt.hour.toString().padLeft(2, '0')}:'
-              '${unlockedAt.minute.toString().padLeft(2, '0')}. Try again later.'
-          : 'Too many failed attempts. This account is temporarily locked.';
-      return null;
-    }
-
-    // Best-effort cloud sign-in; never blocks or fails the local session.
-    await _signInToSupabase(user, password);
-
-    final now = DateTime.now().toUtc();
-    final expiresAt = now.add(_absoluteTtl);
-
-    await _userRepository.updateSessionTimestamps(
-      userId: user.id,
-      lastLoginAt: now,
-      sessionExpiresAt: expiresAt,
-    );
-
-    _currentUser = user;
-
-    // Load the signed-in user's RBAC grants (roles, departments, permissions).
-    await _rbacStore?.loadForUser(user.id);
-
-    await _secureStorage.write(
-      key: _sessionKeyUserId,
-      value: user.id,
-    );
-    await _secureStorage.write(
-      key: _sessionKeyUserRole,
-      value: user.role.value,
-    );
-    await _secureStorage.write(
-      key: _sessionKeyExpiresAt,
-      value: expiresAt.toIso8601String(),
-    );
-    await _secureStorage.write(
-      key: _sessionKeyLastActivity,
-      value: now.toIso8601String(),
-    );
-
-    // Seed cloud sync under the newly verified session. Items stay queued
-    // locally unless the Supabase session is valid and profile-linked.
-    if (SupabaseConfig.isReady) {
-      unawaited(SyncService.instance.flushSyncQueue());
-      // Pull canonical data from Supabase into SQLite so all stores reflect
-      // the source of truth immediately after login.
-      unawaited(SyncService.instance.pullAll());
-    }
-
-    notifyListeners();
-    return _currentUser;
   }
 
   /// Development workaround: bypasses credentials to sign in immediately as
@@ -391,162 +460,171 @@ class AuthStore extends ChangeNotifier {
       );
     }
 
+    _isLoading = true;
     _lastAuthError = null;
-    final db = await _databaseHelper.database;
+    notifyListeners();
+
     try {
-      await SchemaMigrationV9.execute(db);
-    } catch (_) {}
+      final db = await _databaseHelper.database
+          .timeout(const Duration(seconds: 10));
+      try {
+        await SchemaMigrationV9.execute(db)
+            .timeout(const Duration(seconds: 10));
+      } catch (_) {}
 
-    final userRole = UserRole.fromString(normalized);
-    final userId = UuidUtils.deterministic('users', 'dev_$normalized');
-    final now = DateTime.now().toUtc();
-    final expiresAt = now.add(_absoluteTtl);
-    final login = username ?? 'dev_$normalized';
+      final userRole = UserRole.fromString(normalized);
+      final userId = UuidUtils.deterministic('users', 'dev_$normalized');
+      final now = DateTime.now().toUtc();
+      final expiresAt = now.add(_absoluteTtl);
+      final login = username ?? 'dev_$normalized';
 
-    final rows = await db.query(
-      'users',
-      where: 'username = ? AND is_deleted = 0',
-      whereArgs: [login],
-      limit: 1,
-    );
-
-    final userColumns = await _usersTableColumns(db);
-    final hasRollNo = userColumns.contains('roll_no');
-    final hasEmployeeId = userColumns.contains('employee_id');
-
-    User user;
-    if (rows.isEmpty) {
-      user = User(
-        id: userId,
-        username: login,
-        displayName: displayName ?? _devDisplayNameFor(normalized),
-        email: email ?? 'dev_$normalized@institute.edu',
-        role: userRole,
-        isDefaultPassword: false,
-        createdAt: now,
-        updatedAt: now,
-      );
-      final insertData = <String, dynamic>{
-        'id': user.id,
-        'username': user.username,
-        'password_hash': BCrypt.hashpw('Dev.Bypass@2026', BCrypt.gensalt()),
-        'display_name': user.displayName,
-        'email': user.email,
-        'role': normalized,
-        'is_deleted': 0,
-        'is_default_password': 0,
-        'is_suspended': 0,
-        'failed_login_attempts': 0,
-        'created_at': now.toIso8601String(),
-        'updated_at': now.toIso8601String(),
-        'sync_status': 'SYNCED',
-        'is_synced': 1,
-        'institute_id': AppConstants.defaultInstituteId,
-      };
-      if (hasRollNo) {
-        insertData['roll_no'] = normalized == 'student' ? 'DEV-STU-001' : null;
-      }
-      if (hasEmployeeId) {
-        insertData['employee_id'] = normalized == 'teacher' ? 'EMP-DEV-001' : null;
-      }
-      await db.insert('users', insertData);
-    } else {
-      user = User.fromMap(rows.first).copyWith(role: userRole);
-      final updateData = <String, dynamic>{
-        'role': normalized,
-        'updated_at': now.toIso8601String(),
-        'sync_status': 'PENDING',
-      };
-      if (hasRollNo) {
-        updateData['roll_no'] = normalized == 'student' ? 'DEV-STU-001' : null;
-      }
-      if (hasEmployeeId) {
-        updateData['employee_id'] = normalized == 'teacher' ? 'EMP-DEV-001' : null;
-      }
-      await db.update(
+      final rows = await db.query(
         'users',
-        updateData,
-        where: 'id = ?',
-        whereArgs: [user.id],
-      );
-    }
-
-    // ── Role-scoped entities required by foreign keys ────────────────────
-    // teachers.user_id -> users.id (attendance sessions reference faculty)
-    if (normalized == 'teacher') {
-      await _upsertDevTeacher(db, user, now);
-    }
-    // students.id is referenced by attendance_records.student_id and
-    // leave_requests.student_id; students.class_id -> classes.id
-    if (normalized == 'student') {
-      await _upsertDevStudent(db, user, now);
-    }
-
-    // ── RBAC assignment (same path as production login) ──────────────────
-    String roleId = UuidUtils.deterministic('roles', normalized);
-    try {
-      final roleRows = await db.query(
-        'roles',
-        where: 'code = ? AND is_deleted = 0',
-        whereArgs: [normalized],
+        where: 'username = ? AND is_deleted = 0',
+        whereArgs: [login],
         limit: 1,
       );
-      roleId = roleRows.isNotEmpty
-          ? (roleRows.first['id'] as String)
-          : UuidUtils.deterministic('roles', normalized);
 
-      final urRows = await db.query(
-        'user_roles',
-        where: 'user_id = ? AND role_id = ? AND is_deleted = 0',
-        whereArgs: [user.id, roleId],
-        limit: 1,
-      );
-      if (urRows.isEmpty) {
-        await db.insert(
-          'user_roles',
-          {
-            'id': UuidUtils.generate(),
-            'user_id': user.id,
-            'role_id': roleId,
-            'institute_id': AppConstants.defaultInstituteId,
-            'assigned_at': now.toIso8601String(),
-            'sync_status': 'SYNCED',
-            'is_deleted': 0,
-            'is_synced': 1,
-          },
+      final userColumns = await _usersTableColumns(db);
+      final hasRollNo = userColumns.contains('roll_no');
+      final hasEmployeeId = userColumns.contains('employee_id');
+
+      User user;
+      if (rows.isEmpty) {
+        user = User(
+          id: userId,
+          username: login,
+          displayName: displayName ?? _devDisplayNameFor(normalized),
+          email: email ?? 'dev_$normalized@institute.edu',
+          role: userRole,
+          isDefaultPassword: false,
+          createdAt: now,
+          updatedAt: now,
+        );
+        final insertData = <String, dynamic>{
+          'id': user.id,
+          'username': user.username,
+          'password_hash': BCrypt.hashpw('Dev.Bypass@2026', BCrypt.gensalt()),
+          'display_name': user.displayName,
+          'email': user.email,
+          'role': normalized,
+          'is_deleted': 0,
+          'is_default_password': 0,
+          'is_suspended': 0,
+          'failed_login_attempts': 0,
+          'created_at': now.toIso8601String(),
+          'updated_at': now.toIso8601String(),
+          'sync_status': 'SYNCED',
+          'is_synced': 1,
+          'institute_id': AppConstants.defaultInstituteId,
+        };
+        if (hasRollNo) {
+          insertData['roll_no'] = normalized == 'student' ? 'DEV-STU-001' : null;
+        }
+        if (hasEmployeeId) {
+          insertData['employee_id'] = normalized == 'teacher' ? 'EMP-DEV-001' : null;
+        }
+        await db.insert('users', insertData);
+      } else {
+        user = User.fromMap(rows.first).copyWith(role: userRole);
+        final updateData = <String, dynamic>{
+          'role': normalized,
+          'updated_at': now.toIso8601String(),
+          'sync_status': 'PENDING',
+        };
+        if (hasRollNo) {
+          updateData['roll_no'] = normalized == 'student' ? 'DEV-STU-001' : null;
+        }
+        if (hasEmployeeId) {
+          updateData['employee_id'] = normalized == 'teacher' ? 'EMP-DEV-001' : null;
+        }
+        await db.update(
+          'users',
+          updateData,
+          where: 'id = ?',
+          whereArgs: [user.id],
         );
       }
-    } catch (_) {}
 
-    _currentUser = user;
+      // ── Role-scoped entities required by foreign keys ────────────────────
+      // teachers.user_id -> users.id (attendance sessions reference faculty)
+      if (normalized == 'teacher') {
+        await _upsertDevTeacher(db, user, now);
+      }
+      // students.id is referenced by attendance_records.student_id and
+      // leave_requests.student_id; students.class_id -> classes.id
+      if (normalized == 'student') {
+        await _upsertDevStudent(db, user, now);
+      }
 
-    // Load grants through the RBAC store — identical to AuthStore.login.
-    try {
-      await _rbacStore?.loadForUser(user.id);
-    } catch (e) {
-      debugPrint('RBAC load failed in devBypassLoginForRole: $e');
+      // ── RBAC assignment (same path as production login) ──────────────────
+      String roleId = UuidUtils.deterministic('roles', normalized);
+      try {
+        final roleRows = await db.query(
+          'roles',
+          where: 'code = ? AND is_deleted = 0',
+          whereArgs: [normalized],
+          limit: 1,
+        );
+        roleId = roleRows.isNotEmpty
+            ? (roleRows.first['id'] as String)
+            : UuidUtils.deterministic('roles', normalized);
+
+        final urRows = await db.query(
+          'user_roles',
+          where: 'user_id = ? AND role_id = ? AND is_deleted = 0',
+          whereArgs: [user.id, roleId],
+          limit: 1,
+        );
+        if (urRows.isEmpty) {
+          await db.insert(
+            'user_roles',
+            {
+              'id': UuidUtils.generate(),
+              'user_id': user.id,
+              'role_id': roleId,
+              'institute_id': AppConstants.defaultInstituteId,
+              'assigned_at': now.toIso8601String(),
+              'sync_status': 'SYNCED',
+              'is_deleted': 0,
+              'is_synced': 1,
+            },
+          );
+        }
+      } catch (_) {}
+
+      _currentUser = user;
+
+      // Load grants through the RBAC store — identical to AuthStore.login.
+      try {
+        await _rbacStore?.loadForUser(user.id);
+      } catch (e) {
+        debugPrint('RBAC load failed in devBypassLoginForRole: $e');
+      }
+
+      // Direct in-memory guarantee so PermissionService resolves the role's
+      // grants even when the store is not attached.
+      PermissionService.instance.currentUserId = user.id;
+      PermissionService.instance.setUserRoles(user.id, {roleId});
+
+      try {
+        await _secureStorage.write(key: _sessionKeyUserId, value: user.id);
+        await _secureStorage.write(key: _sessionKeyUserRole, value: normalized);
+        await _secureStorage.write(
+          key: _sessionKeyExpiresAt,
+          value: expiresAt.toIso8601String(),
+        );
+        await _secureStorage.write(
+          key: _sessionKeyLastActivity,
+          value: now.toIso8601String(),
+        );
+      } catch (_) {}
+
+      return _currentUser!;
+    } finally {
+      _isLoading = false;
+      notifyListeners();
     }
-
-    // Direct in-memory guarantee so PermissionService resolves the role's
-    // grants even when the store is not attached.
-    PermissionService.instance.currentUserId = user.id;
-    PermissionService.instance.setUserRoles(user.id, {roleId});
-
-    try {
-      await _secureStorage.write(key: _sessionKeyUserId, value: user.id);
-      await _secureStorage.write(key: _sessionKeyUserRole, value: normalized);
-      await _secureStorage.write(
-        key: _sessionKeyExpiresAt,
-        value: expiresAt.toIso8601String(),
-      );
-      await _secureStorage.write(
-        key: _sessionKeyLastActivity,
-        value: now.toIso8601String(),
-      );
-    } catch (_) {}
-
-    notifyListeners();
-    return _currentUser!;
   }
 
   /// Returns the set of column names currently on the `users` table, so the
@@ -667,21 +745,28 @@ class AuthStore extends ChangeNotifier {
     final current = _currentUser;
     if (current == null) return false;
 
-    final fresh = await _userRepository.getById(current.id);
-    if (fresh == null || fresh.isDeleted || fresh.isSuspended || fresh.isLocked) {
-      await logout(clearSecure: true);
-      _lastAuthError = fresh == null || fresh.isDeleted
-          ? 'This account is no longer active.'
-          : fresh.isSuspended
-              ? 'This account is suspended. Contact your institute administrator.'
-              : 'This account is temporarily locked.';
-      notifyListeners();
+    try {
+      final fresh = await _userRepository
+          .getById(current.id)
+          .timeout(const Duration(seconds: 10));
+      if (fresh == null || fresh.isDeleted || fresh.isSuspended || fresh.isLocked) {
+        await logout(clearSecure: true);
+        _lastAuthError = fresh == null || fresh.isDeleted
+            ? 'This account is no longer active.'
+            : fresh.isSuspended
+                ? 'This account is suspended. Contact your institute administrator.'
+                : 'This account is temporarily locked.';
+        notifyListeners();
+        return false;
+      }
+
+      _currentUser = fresh;
+      await _refreshIdleActivity();
+      return true;
+    } catch (e) {
+      debugPrint('validateSession error: $e');
       return false;
     }
-
-    _currentUser = fresh;
-    await _refreshIdleActivity();
-    return true;
   }
 
   Future<void> _refreshIdleActivity() async {
@@ -832,11 +917,13 @@ class AuthStore extends ChangeNotifier {
   }) async {
     if (!SupabaseConfig.isReady) return false;
     try {
-      final res = await Supabase.instance.client.auth.signUp(
-        email: email,
-        password: password,
-        data: data,
-      );
+      final res = await Supabase.instance.client.auth
+          .signUp(
+            email: email,
+            password: password,
+            data: data,
+          )
+          .timeout(const Duration(seconds: 10));
       return res.user != null;
     } catch (e) {
       debugPrint('Supabase signUp failed: $e');
@@ -852,7 +939,9 @@ class AuthStore extends ChangeNotifier {
     // Best-effort cloud sign-out; local logout always proceeds.
     if (SupabaseConfig.isReady) {
       try {
-        await Supabase.instance.client.auth.signOut();
+        await Supabase.instance.client.auth
+            .signOut()
+            .timeout(const Duration(seconds: 10));
       } catch (e) {
         debugPrint('Supabase signOut failed (continuing local logout): $e');
       }
@@ -877,23 +966,26 @@ class AuthStore extends ChangeNotifier {
   /// Attempts a Supabase password sign-in for [user]'s email.
   ///
   /// On success the tenant id from the user's `institute_id` metadata is
-  /// adopted centrally (persisted + re-tagged locally). Any failure â€” not
-  /// configured, offline, wrong cloud account â€” is swallowed: the caller
+  /// adopted centrally (persisted + re-tagged locally). Any failure — not
+  /// configured, offline, wrong cloud account — is swallowed: the caller
   /// keeps working with the local session only.
   Future<void> _signInToSupabase(User user, String password) async {
     if (!SupabaseConfig.isReady || user.email.isEmpty) return;
     try {
-      final res = await Supabase.instance.client.auth.signInWithPassword(
-        email: user.email,
-        password: password,
-      );
+      final res = await Supabase.instance.client.auth
+          .signInWithPassword(
+            email: user.email,
+            password: password,
+          )
+          .timeout(const Duration(seconds: 10));
       final cloudUser = res.user;
       if (cloudUser == null) return;
 
       final metadata = cloudUser.userMetadata;
       final instituteId = metadata?['institute_id']?.toString();
       if (instituteId != null && instituteId.isNotEmpty) {
-        await _adoptInstituteId(instituteId);
+        await _adoptInstituteId(instituteId)
+            .timeout(const Duration(seconds: 10));
       }
     } catch (e) {
       debugPrint('Supabase sign-in failed; continuing with local session: $e');

@@ -1,10 +1,14 @@
+import 'dart:async';
+
 import 'package:fl_chart/fl_chart.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/config/supabase_config.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
+import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 
@@ -24,6 +28,7 @@ class _DashboardContentState extends State<DashboardContent> {
   Map<AttendanceStatus, int> _distribution = {};
   List<AttendanceRecord> _recentActivity = [];
   bool _isLoading = true;
+  String? _errorMessage;
 
   @override
   void initState() {
@@ -32,22 +37,62 @@ class _DashboardContentState extends State<DashboardContent> {
   }
 
   Future<void> _loadDashboardData() async {
-    final store = context.read<AttendanceStore>();
-    final late = await store.todayLateCount();
-    final overview = await store.todayOverview();
-    final weekly = await store.weeklyStats();
-    final dist = await store.monthlyDistribution();
-    final recent = await store.recentActivity();
-
     if (!mounted) return;
     setState(() {
-      _lateCount = late;
-      _todayOverview = overview;
-      _weeklyStats = weekly;
-      _distribution = dist;
-      _recentActivity = recent;
-      _isLoading = false;
+      _isLoading = true;
+      _errorMessage = null;
     });
+
+    try {
+      final store = context.read<AttendanceStore>();
+
+      // 2. Add 10-second timeout to database calls loading from SQLite immediately
+      final late = await store
+          .todayLateCount()
+          .timeout(const Duration(seconds: 10));
+      final overview = await store
+          .todayOverview()
+          .timeout(const Duration(seconds: 10));
+      final weekly = await store
+          .weeklyStats()
+          .timeout(const Duration(seconds: 10));
+      final dist = await store
+          .monthlyDistribution()
+          .timeout(const Duration(seconds: 10));
+      final recent = await store
+          .recentActivity()
+          .timeout(const Duration(seconds: 10));
+
+      if (!mounted) return;
+      setState(() {
+        _lateCount = late;
+        _todayOverview = overview;
+        _weeklyStats = weekly;
+        _distribution = dist;
+        _recentActivity = recent;
+      });
+
+      // 3. Run SyncService in the background without blocking the UI
+      if (SupabaseConfig.isReady) {
+        unawaited(SyncService.instance.pullAll().catchError((e) {
+          debugPrint('DashboardContent background sync pull failed: $e');
+        }));
+      }
+    } catch (e, stack) {
+      debugPrint('DashboardContent._loadDashboardData error: $e\n$stack');
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Failed to load dashboard data: $e';
+        });
+      }
+    } finally {
+      // 1. isLoading is ALWAYS set to false in finally block
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
+    }
   }
 
   @override
@@ -59,6 +104,46 @@ class _DashboardContentState extends State<DashboardContent> {
 
     if (_isLoading) {
       return const Center(child: CircularProgressIndicator());
+    }
+
+    // 4. Showing an error message with a 'Retry' button if loading fails
+    if (_errorMessage != null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline_rounded,
+                size: 56,
+                color: colorScheme.error,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Failed to load dashboard',
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                textAlign: TextAlign.center,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: _loadDashboardData,
+                icon: const Icon(Icons.refresh_rounded),
+                label: const Text('Retry'),
+              ),
+            ],
+          ),
+        ),
+      );
     }
 
     final todayTotal = (_todayOverview['total'] as int?) ?? 0;
