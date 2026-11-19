@@ -139,7 +139,80 @@ void main() {
       );
 
       expect(find.byIcon(Icons.person), findsNothing);
-      expect(find.textContaining('No permission'), findsOneWidget);
+      expect(find.textContaining('No permission'), findsNothing);
+      expect(find.byType(SizedBox), findsWidgets);
+    });
+  });
+
+  group('PermissionGuard fail-closed uninitialized or unauthorized behavior', () {
+    testWidgets('uninitialized store (null store) does not render protected child',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: Scaffold(
+            body: PermissionGuard(
+              permission: PermissionCodes.studentView,
+              child: Icon(Icons.person, size: 48, color: Colors.green),
+            ),
+          ),
+        ),
+      );
+
+      // Must fail closed and not render protected child
+      expect(find.byIcon(Icons.person), findsNothing);
+      expect(find.byType(SizedBox), findsWidgets);
+    });
+
+    testWidgets('unauthenticated store does not render protected child',
+        (WidgetTester tester) async {
+      // rbac is unauthenticated because currentUserId is null
+      await tester.pumpWidget(
+        ChangeNotifierProvider<RBACStore>.value(
+          value: rbac,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: PermissionGuard(
+                permission: PermissionCodes.studentView,
+                child: Icon(Icons.person, size: 48, color: Colors.green),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.person), findsNothing);
+    });
+
+    testWidgets('suspended user does not render protected child',
+        (WidgetTester tester) async {
+      final studentRole = Role(
+        id: 'r_susp',
+        name: 'Student',
+        code: 'student',
+        isInstituteWide: false,
+      );
+      PermissionService.instance.loadRoles([studentRole]);
+      PermissionService.instance.grantPermissionToRole(
+          studentRole.id, PermissionCodes.studentView);
+      PermissionService.instance.assignRoleToUser('u_susp', studentRole.id);
+      PermissionService.instance.currentUserId = 'u_susp';
+      PermissionService.instance.setUserSuspended('u_susp', true);
+
+      await tester.pumpWidget(
+        ChangeNotifierProvider<RBACStore>.value(
+          value: rbac,
+          child: const MaterialApp(
+            home: Scaffold(
+              body: PermissionGuard(
+                permission: PermissionCodes.studentView,
+                child: Icon(Icons.person, size: 48, color: Colors.green),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      expect(find.byIcon(Icons.person), findsNothing);
     });
   });
 }

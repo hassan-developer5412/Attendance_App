@@ -18,6 +18,7 @@ import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
 import 'package:attendance_app/core/state/notice_store.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
+import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 
 /// Self-Service portal for students.
 ///
@@ -266,6 +267,43 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
     }
   }
 
+  Future<void> _confirmLogout() async {
+    final shouldLogout = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Logout'),
+        content: const Text('Are you sure you want to log out of your account?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
+            child: const Text('Logout'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldLogout == true && mounted) {
+      try {
+        final authStore = Provider.of<AuthStore>(context, listen: false);
+        await authStore.logout().timeout(const Duration(seconds: 10));
+      } catch (e) {
+        debugPrint('Logout failed in StudentSelfViewContent: $e');
+      }
+      if (!mounted) return;
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute<void>(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -277,6 +315,13 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
           'Student Portal — ${_resolvedStudentName.isNotEmpty ? _resolvedStudentName : "Self Service"}',
           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.logout_rounded),
+            tooltip: 'Logout',
+            onPressed: _confirmLogout,
+          ),
+        ],
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,

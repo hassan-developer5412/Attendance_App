@@ -10,26 +10,28 @@ import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/attendance_content.dart';
-import 'package:attendance_app/features/dashboard/presentation/pages/dashboard_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/classes_content.dart';
+import 'package:attendance_app/features/dashboard/presentation/pages/dashboard_content.dart';
+import 'package:attendance_app/features/dashboard/presentation/pages/lab_inventory_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/leave_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/reports_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/settings_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/students_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/teachers_content.dart';
-import 'package:attendance_app/features/dashboard/presentation/pages/lab_inventory_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/pages/timetable_content.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/sync_status_pill.dart';
+import 'package:attendance_app/features/parent_view/presentation/parent_view_content.dart';
 import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
 import 'package:attendance_app/features/student_view/presentation/student_self_view_content.dart';
 import 'package:attendance_app/features/users/presentation/user_management_content.dart';
 
-/// Responsive dashboard shell with role-aware menu visibility and permission guards.
-/// Inspects the logged-in user's role and RBAC grants to render appropriate navigation items.
+/// Responsive dashboard shell with permission-driven navigation and role-aware routing.
+/// Visible navigation items are derived purely from [RBACStore.hasPermission].
 class DashboardShell extends StatefulWidget {
   const DashboardShell({super.key});
 
   /// Returns the permitted menu IDs for a given role according to RBAC layout policies.
+  /// Retained for backward compatibility and test access.
   static List<String> getMenuIdsForRole(UserRole role) {
     if (role == UserRole.student) {
       return const ['schedule', 'my_attendance'];
@@ -82,23 +84,62 @@ class _DashboardShellState extends State<DashboardShell> {
   static const double _kBreakpoint = 768;
   static const double _kSidebarWidth = 270;
 
+  /// Staff dashboard permissions that distinguish administrative operations from student/parent self-service.
+  static const List<String> _staffDashboardPermissions = [
+    PermissionCodes.attendanceMark,
+    PermissionCodes.attendanceEdit,
+    PermissionCodes.attendanceDelete,
+    PermissionCodes.studentView,
+    PermissionCodes.studentCreate,
+    PermissionCodes.studentEdit,
+    PermissionCodes.studentDelete,
+    PermissionCodes.teacherView,
+    PermissionCodes.teacherCreate,
+    PermissionCodes.teacherEdit,
+    PermissionCodes.teacherDelete,
+    PermissionCodes.classManage,
+    PermissionCodes.userView,
+    PermissionCodes.userCreate,
+    PermissionCodes.userEdit,
+    PermissionCodes.userDelete,
+    PermissionCodes.userManageRoles,
+    PermissionCodes.reportView,
+    PermissionCodes.settingManage,
+    PermissionCodes.labView,
+    PermissionCodes.labManage,
+    PermissionCodes.leaveApprove,
+    PermissionCodes.feeView,
+    PermissionCodes.feeManage,
+    PermissionCodes.timetableManage,
+    PermissionCodes.noticeManage,
+  ];
+
   int _selectedIndex = 0;
   String? _preselectedClassId;
   String? _preselectedSubjectId;
   int? _preselectedPeriodSlot;
+
+  bool _holdsStudentRole(AuthStore authStore, RBACStore rbacStore) {
+    return authStore.currentUserRole == UserRole.student ||
+        rbacStore.currentUserRoles.any((r) => r.code == 'student');
+  }
+
+  bool _holdsParentRole(AuthStore authStore, RBACStore rbacStore) {
+    return authStore.currentUserRole == UserRole.parent ||
+        rbacStore.currentUserRoles.any((r) => r.code == 'parent');
+  }
+
+  bool _hasStaffDashboardPermissions(RBACStore rbacStore) {
+    return rbacStore.hasAnyPermission(_staffDashboardPermissions);
+  }
 
   void _navigateToAttendance({
     required String classId,
     required String subjectId,
     int? periodSlot,
   }) {
-    final authStore = context.read<AuthStore>();
     final rbacStore = context.read<RBACStore>();
-    final activeItems = _getItemsForUser(authStore, rbacStore).where((item) {
-      if (item.permission == null) return true;
-      if (!rbacStore.isAuthenticated) return true;
-      return rbacStore.hasPermission(item.permission!);
-    }).toList();
+    final activeItems = _getActiveItems(rbacStore);
     final idx = activeItems.indexWhere((item) => item.id == 'attendance');
     if (idx != -1) {
       setState(() {
@@ -113,7 +154,7 @@ class _DashboardShellState extends State<DashboardShell> {
   @override
   void initState() {
     super.initState();
-    // 3. Runs SyncService in the background without blocking the UI
+    // Runs SyncService in the background without blocking the UI
     if (SupabaseConfig.isReady) {
       unawaited(SyncService.instance.pullAll().catchError((e) {
         debugPrint('DashboardShell background sync failed: $e');
@@ -121,164 +162,8 @@ class _DashboardShellState extends State<DashboardShell> {
     }
   }
 
-  List<_MenuItem> _getItemsForUser(AuthStore authStore, RBACStore rbacStore) {
-    final role = authStore.currentUserRole ?? UserRole.teacher;
-
-    // 1. Student Role: Strictly self-view (Class schedule and personal attendance records)
-    if (role == UserRole.student) {
-      return [
-        _MenuItem(
-          id: 'schedule',
-          icon: Icons.schedule_rounded,
-          label: 'Class Schedule',
-          builder: () => const StudentSelfViewContent(initialTab: 0),
-        ),
-        _MenuItem(
-          id: 'my_attendance',
-          icon: Icons.fact_check_rounded,
-          label: 'My Attendance',
-          builder: () => const StudentSelfViewContent(initialTab: 1),
-        ),
-      ];
-    }
-
-    // 2. Teacher Role: Classroom instruction & attendance marking
-    if (role == UserRole.teacher) {
-      return [
-        _MenuItem(
-          id: 'dashboard',
-          icon: Icons.dashboard_rounded,
-          label: 'Dashboard',
-          permission: PermissionCodes.dashboardView,
-          builder: () => DashboardContent(
-            onNavigateToAttendance: _navigateToAttendance,
-          ),
-        ),
-        _MenuItem(
-          id: 'attendance',
-          icon: Icons.fingerprint_rounded,
-          label: 'Attendance',
-          permission: PermissionCodes.attendanceView,
-          builder: () => AttendanceContent(
-            initialClassId: _preselectedClassId,
-            initialSubjectId: _preselectedSubjectId,
-            initialPeriodSlot: _preselectedPeriodSlot,
-          ),
-        ),
-        _MenuItem(
-          id: 'timetable',
-          icon: Icons.calendar_month_rounded,
-          label: 'Timetable',
-          permission: PermissionCodes.timetableView,
-          builder: () => const TimetableContent(),
-        ),
-        _MenuItem(
-          id: 'classes',
-          icon: Icons.class_rounded,
-          label: 'Classes',
-          permission: PermissionCodes.classManage,
-          builder: () => const ClassesContent(),
-        ),
-        _MenuItem(
-          id: 'students',
-          icon: Icons.groups_rounded,
-          label: 'Students',
-          permission: PermissionCodes.studentView,
-          builder: () => const StudentsContent(),
-        ),
-        _MenuItem(
-          id: 'leave',
-          icon: Icons.event_busy_rounded,
-          label: 'Leave Management',
-          permission: PermissionCodes.leaveView,
-          builder: () => const LeaveContent(),
-        ),
-      ];
-    }
-
-    // 3. HOD Role: Department academic authority + User account creation
-    if (role == UserRole.hod) {
-      return [
-        _MenuItem(
-          id: 'dashboard',
-          icon: Icons.dashboard_rounded,
-          label: 'Dashboard',
-          permission: PermissionCodes.dashboardView,
-          builder: () => DashboardContent(
-            onNavigateToAttendance: _navigateToAttendance,
-          ),
-        ),
-        _MenuItem(
-          id: 'attendance',
-          icon: Icons.fingerprint_rounded,
-          label: 'Attendance',
-          permission: PermissionCodes.attendanceView,
-          builder: () => AttendanceContent(
-            initialClassId: _preselectedClassId,
-            initialSubjectId: _preselectedSubjectId,
-            initialPeriodSlot: _preselectedPeriodSlot,
-          ),
-        ),
-        _MenuItem(
-          id: 'timetable',
-          icon: Icons.calendar_month_rounded,
-          label: 'Timetable',
-          permission: PermissionCodes.timetableView,
-          builder: () => const TimetableContent(),
-        ),
-        _MenuItem(
-          id: 'classes',
-          icon: Icons.class_rounded,
-          label: 'Classes',
-          permission: PermissionCodes.classManage,
-          builder: () => const ClassesContent(),
-        ),
-        _MenuItem(
-          id: 'teachers',
-          icon: Icons.school_rounded,
-          label: 'Teachers',
-          permission: PermissionCodes.teacherView,
-          builder: () => const TeachersContent(),
-        ),
-        _MenuItem(
-          id: 'students',
-          icon: Icons.groups_rounded,
-          label: 'Students',
-          permission: PermissionCodes.studentView,
-          builder: () => const StudentsContent(),
-        ),
-        _MenuItem(
-          id: 'user_management',
-          icon: Icons.manage_accounts_rounded,
-          label: 'User Management',
-          permission: PermissionCodes.userCreate,
-          builder: () => const UserManagementContent(),
-        ),
-        _MenuItem(
-          id: 'leave',
-          icon: Icons.event_busy_rounded,
-          label: 'Leave Management',
-          permission: PermissionCodes.leaveView,
-          builder: () => const LeaveContent(),
-        ),
-        _MenuItem(
-          id: 'reports',
-          icon: Icons.bar_chart_rounded,
-          label: 'Reports',
-          permission: PermissionCodes.reportView,
-          builder: () => const ReportsContent(),
-        ),
-        _MenuItem(
-          id: 'lab_inventory',
-          icon: Icons.inventory_2_rounded,
-          label: 'Lab Inventory',
-          permission: PermissionCodes.labView,
-          builder: () => const LabInventoryContent(),
-        ),
-      ];
-    }
-
-    // 4. Admin / Principal / VP: Full operational access
+  /// Master catalogue of navigation items, each guarded by RBAC permissions.
+  List<_MenuItem> _getAllMenuItems() {
     return [
       _MenuItem(
         id: 'dashboard',
@@ -332,7 +217,9 @@ class _DashboardShellState extends State<DashboardShell> {
         id: 'user_management',
         icon: Icons.manage_accounts_rounded,
         label: 'User & Staff Management',
-        permission: PermissionCodes.userView,
+        permissionCheck: (rbac) =>
+            rbac.hasPermission(PermissionCodes.userView) ||
+            rbac.hasPermission(PermissionCodes.userCreate),
         builder: () => const UserManagementContent(),
       ),
       _MenuItem(
@@ -373,16 +260,12 @@ class _DashboardShellState extends State<DashboardShell> {
     ];
   }
 
-  List<_MenuItem> _getActiveItems(BuildContext context) {
-    final authStore = context.watch<AuthStore>();
-    final rbacStore = context.watch<RBACStore>();
-    final allItems = _getItemsForUser(authStore, rbacStore);
-
-    return allItems.where((item) {
-      if (item.permission == null) return true;
-      if (!rbacStore.isAuthenticated) return true;
-      return rbacStore.hasPermission(item.permission!);
-    }).toList();
+  /// Visible navigation items derived purely from RBAC permissions.
+  List<_MenuItem> _getActiveItems(RBACStore rbacStore) {
+    if (!rbacStore.isAuthenticated) {
+      return const [];
+    }
+    return _getAllMenuItems().where((item) => item.isPermitted(rbacStore)).toList();
   }
 
   Future<void> _confirmLogout() async {
@@ -424,6 +307,39 @@ class _DashboardShellState extends State<DashboardShell> {
     }
   }
 
+  Widget _buildNoModulesView(ThemeData theme, ColorScheme colorScheme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.lock_person_rounded,
+              size: 56,
+              color: colorScheme.outline,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'No Accessible Modules',
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your account does not have permission to access any administrative modules.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   // -----------------------------------------------------------------------
   // Sidebar content (shared between permanent sidebar and Drawer)
   // -----------------------------------------------------------------------
@@ -435,8 +351,11 @@ class _DashboardShellState extends State<DashboardShell> {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
     final authStore = context.watch<AuthStore>();
+    final rbacStore = context.watch<RBACStore>();
     final displayName = authStore.currentUser?.displayName ?? 'User';
-    final role = authStore.currentUser?.role.name ?? 'user';
+    final roleName = rbacStore.currentUserRoles.isNotEmpty
+        ? rbacStore.currentUserRoles.first.name
+        : (authStore.currentUser?.role.name ?? 'user');
 
     return Column(
       children: [
@@ -518,7 +437,7 @@ class _DashboardShellState extends State<DashboardShell> {
                       ),
                     ),
                     Text(
-                      role.toUpperCase(),
+                      roleName.toUpperCase(),
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: colorScheme.primary,
                         fontWeight: FontWeight.bold,
@@ -534,78 +453,90 @@ class _DashboardShellState extends State<DashboardShell> {
 
         // Menu Items
         Expanded(
-          child: ListView.builder(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            itemCount: items.length,
-            itemBuilder: (context, index) {
-              final item = items[index];
-              final isSelected = safeIndex == index;
-
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: Material(
-                  color: Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () {
-                      setState(() {
-                        _selectedIndex = index;
-                        if (items[index].id != 'attendance') {
-                          _preselectedClassId = null;
-                          _preselectedSubjectId = null;
-                          _preselectedPeriodSlot = null;
-                        }
-                      });
-                      if (isDrawer) Navigator.of(context).pop();
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? colorScheme.primary.withValues(alpha: 0.12)
-                            : Colors.transparent,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            item.icon,
-                            size: 22,
-                            color: isSelected
-                                ? colorScheme.primary
-                                : colorScheme.onSurfaceVariant,
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Text(
-                              item.label,
-                              style: theme.textTheme.bodyMedium?.copyWith(
-                                fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                                color: isSelected
-                                    ? colorScheme.primary
-                                    : colorScheme.onSurface,
-                              ),
-                            ),
-                          ),
-                          if (isSelected)
-                            Container(
-                              width: 6,
-                              height: 6,
-                              decoration: BoxDecoration(
-                                color: colorScheme.primary,
-                                shape: BoxShape.circle,
-                              ),
-                            ),
-                        ],
+          child: items.isEmpty
+              ? Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      'No accessible modules',
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
                       ),
                     ),
                   ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  itemCount: items.length,
+                  itemBuilder: (context, index) {
+                    final item = items[index];
+                    final isSelected = safeIndex == index;
+
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(12),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () {
+                            setState(() {
+                              _selectedIndex = index;
+                              if (items[index].id != 'attendance') {
+                                _preselectedClassId = null;
+                                _preselectedSubjectId = null;
+                                _preselectedPeriodSlot = null;
+                              }
+                            });
+                            if (isDrawer) Navigator.of(context).pop();
+                          },
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 200),
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? colorScheme.primary.withValues(alpha: 0.12)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  item.icon,
+                                  size: 22,
+                                  color: isSelected
+                                      ? colorScheme.primary
+                                      : colorScheme.onSurfaceVariant,
+                                ),
+                                const SizedBox(width: 14),
+                                Expanded(
+                                  child: Text(
+                                    item.label,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                                      color: isSelected
+                                          ? colorScheme.primary
+                                          : colorScheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                                if (isSelected)
+                                  Container(
+                                    width: 6,
+                                    height: 6,
+                                    decoration: BoxDecoration(
+                                      color: colorScheme.primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                    );
+                  },
                 ),
-              );
-            },
-          ),
         ),
 
         // Logout Button
@@ -636,8 +567,23 @@ class _DashboardShellState extends State<DashboardShell> {
 
   @override
   Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final activeItems = _getActiveItems(context);
+    final authStore = context.watch<AuthStore>();
+    final rbacStore = context.watch<RBACStore>();
+
+    // Direct routing for authenticated users holding student or parent roles without staff permissions.
+    final holdsStudent = _holdsStudentRole(authStore, rbacStore);
+    final holdsParent = _holdsParentRole(authStore, rbacStore);
+
+    if ((holdsStudent || holdsParent) && !_hasStaffDashboardPermissions(rbacStore)) {
+      if (holdsParent) {
+        return const ParentViewContent();
+      }
+      return const StudentSelfViewContent();
+    }
+
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    final activeItems = _getActiveItems(rbacStore);
     final safeIndex = activeItems.isEmpty
         ? 0
         : _selectedIndex.clamp(0, activeItems.length - 1);
@@ -693,9 +639,7 @@ class _DashboardShellState extends State<DashboardShell> {
                         ),
                         child: currentItem != null
                             ? currentItem.builder()
-                            : DashboardContent(
-                                onNavigateToAttendance: _navigateToAttendance,
-                              ),
+                            : _buildNoModulesView(theme, colorScheme),
                       ),
                     ),
                   ),
@@ -737,9 +681,7 @@ class _DashboardShellState extends State<DashboardShell> {
               ),
               child: currentItem != null
                   ? currentItem.builder()
-                  : DashboardContent(
-                      onNavigateToAttendance: _navigateToAttendance,
-                    ),
+                  : _buildNoModulesView(theme, colorScheme),
             ),
           ),
         );
@@ -748,7 +690,7 @@ class _DashboardShellState extends State<DashboardShell> {
   }
 }
 
-/// Menu item descriptor with dynamic widget builder.
+/// Menu item descriptor with dynamic widget builder and RBAC permission checks.
 class _MenuItem {
   const _MenuItem({
     required this.id,
@@ -756,6 +698,7 @@ class _MenuItem {
     required this.label,
     required this.builder,
     this.permission,
+    this.permissionCheck,
   });
 
   final String id;
@@ -763,4 +706,15 @@ class _MenuItem {
   final String label;
   final Widget Function() builder;
   final String? permission;
+  final bool Function(RBACStore rbacStore)? permissionCheck;
+
+  bool isPermitted(RBACStore rbacStore) {
+    if (permissionCheck != null) {
+      return permissionCheck!(rbacStore);
+    }
+    if (permission != null) {
+      return rbacStore.hasPermission(permission!);
+    }
+    return true;
+  }
 }

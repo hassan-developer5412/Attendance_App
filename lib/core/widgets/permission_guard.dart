@@ -16,8 +16,8 @@ import 'package:attendance_app/core/state/rbac_store.dart';
 /// )
 /// ```
 ///
-/// When the permission is not granted, [fallback] is rendered instead
-/// (defaults to an empty [SizedBox.shrink]).
+/// When the permission is not granted or the user/store is uninitialized,
+/// [fallback] is rendered instead (defaults to [const SizedBox.shrink()]).
 class PermissionGuard extends StatelessWidget {
   const PermissionGuard({
     super.key,
@@ -36,7 +36,8 @@ class PermissionGuard extends StatelessWidget {
   /// Rendered when [hasPermission] returns `true`.
   final Widget? child;
 
-  /// Rendered when [hasPermission] returns `false`. Defaults to an empty box.
+  /// Rendered when [hasPermission] returns `false` or the store is uninitialized.
+  /// Defaults to [const SizedBox.shrink()].
   final Widget? fallback;
 
   @override
@@ -49,49 +50,13 @@ class PermissionGuard extends StatelessWidget {
     }
 
     if (store == null || !store.isAuthenticated) {
-      // If no RBACStore is present in the tree or no user is logged in
-      // (e.g. isolated widget tests), permit display.
-      return child ?? const SizedBox.shrink();
+      // Fail closed: unauthorized or uninitialized states never render protected UI.
+      return fallback ?? const SizedBox.shrink();
     }
 
     final granted = store.hasPermission(permission,
         departmentId: departmentId);
     if (granted) return child ?? const SizedBox.shrink();
-    return fallback ??
-        _PermissionDeniedPlaceholder(permission: permission);
-  }
-}
-
-/// Subtle placeholder rendered in place of a guarded control the user may not
-/// access. Kept intentionally low-key so it never leaks sensitive information.
-class _PermissionDeniedPlaceholder extends StatelessWidget {
-  const _PermissionDeniedPlaceholder({required this.permission});
-
-  final String permission;
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    return Container(
-      constraints: const BoxConstraints.tightFor(height: 36),
-      alignment: Alignment.center,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerLowest.withValues(alpha: 0.25),
-        border: Border.all(
-          color: colorScheme.outlineVariant.withValues(alpha: 0.4),
-        ),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Text(
-        'No permission: $permission',
-        style: TextStyle(
-          fontSize: 11,
-          color: colorScheme.onSurface.withValues(alpha: 0.5),
-        ),
-        overflow: TextOverflow.ellipsis,
-        maxLines: 1,
-      ),
-    );
+    return fallback ?? const SizedBox.shrink();
   }
 }

@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
-import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
@@ -240,12 +239,10 @@ class _AttendanceContentState extends State<AttendanceContent>
 
     final instituteStore = context.read<InstituteStore>();
     final attendanceStore = context.read<AttendanceStore>();
-    final authStore = context.read<AuthStore>();
     final rbacStore = context.read<RBACStore>();
 
-    final canOverride = authStore.currentUserRole == UserRole.admin ||
-        authStore.currentUserRole == UserRole.hod ||
-        rbacStore.hasPermission(PermissionCodes.attendanceCorrectAfterDeadline);
+    final canOverride =
+        rbacStore.hasPermission('attendance.correct_after_deadline');
 
     if (attendanceStore.isSessionLocked && !canOverride) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -355,13 +352,11 @@ class _AttendanceContentState extends State<AttendanceContent>
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final authStore = context.watch<AuthStore>();
     final rbacStore = context.watch<RBACStore>();
     final attendanceStore = context.watch<AttendanceStore>();
 
-    final canOverride = authStore.currentUserRole == UserRole.admin ||
-        authStore.currentUserRole == UserRole.hod ||
-        rbacStore.hasPermission(PermissionCodes.attendanceCorrectAfterDeadline);
+    final canOverride =
+        rbacStore.hasPermission('attendance.correct_after_deadline');
     final isLocked = attendanceStore.isSessionLocked;
 
     return SafeArea(
@@ -546,12 +541,10 @@ class _AttendanceContentState extends State<AttendanceContent>
   Widget _buildMarkAttendanceTab(ThemeData theme, ColorScheme colorScheme) {
     final instituteStore = context.watch<InstituteStore>();
     final attendanceStore = context.watch<AttendanceStore>();
-    final authStore = context.watch<AuthStore>();
     final rbacStore = context.watch<RBACStore>();
 
-    final canOverride = authStore.currentUserRole == UserRole.admin ||
-        authStore.currentUserRole == UserRole.hod ||
-        rbacStore.hasPermission(PermissionCodes.attendanceCorrectAfterDeadline);
+    final canOverride =
+        rbacStore.hasPermission('attendance.correct_after_deadline');
     final isLocked = attendanceStore.isSessionLocked;
     final isEditable = !isLocked || canOverride;
 
@@ -1338,12 +1331,9 @@ class _AttendanceContentState extends State<AttendanceContent>
                     DateTime.now().toUtc().difference(createdDate) >
                         const Duration(hours: 24);
 
-                final authStore = context.watch<AuthStore>();
                 final rbacStore = context.watch<RBACStore>();
-                final canOverride = authStore.currentUserRole == UserRole.admin ||
-                    authStore.currentUserRole == UserRole.hod ||
-                    rbacStore.hasPermission(
-                        PermissionCodes.attendanceCorrectAfterDeadline);
+                final canOverride =
+                    rbacStore.hasPermission('attendance.correct_after_deadline');
 
                 final rate = (session['attendanceRate'] as num?)?.toDouble() ?? 0.0;
                 final total = session['totalMarked'] ?? 0;

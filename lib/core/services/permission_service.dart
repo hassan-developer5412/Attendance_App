@@ -43,6 +43,8 @@ class PermissionDeniedException implements Exception {
 ///   * Only Admin or Principal/VP can assign or modify user roles.
 ///   * A user holds a permission when any of their assigned roles grants it
 ///     and authority rules are satisfied.
+///   * Strict fail-closed: unauthenticated users (`currentUserId == null`) and
+///     suspended users immediately fail all permission checks.
 class PermissionService {
   PermissionService._();
   static final PermissionService instance = PermissionService._();
@@ -61,8 +63,10 @@ class PermissionService {
   final Map<String, Set<String>> _userRoles = <String, Set<String>>{};
   // userId -> Set<departmentId>
   final Map<String, Set<String>> _userDepartments = <String, Set<String>>{};
+  // Set of suspended user ids
+  final Set<String> _suspendedUserIds = <String>{};
 
-  /// Id of the signed-in user, used when [hasPermission] is called without an
+  /// Id of the signed-in user, used when permission checks are called without an
   /// explicit [userId]. Set by [RBACStore] after login; cleared on logout.
   String? currentUserId;
 
@@ -110,6 +114,22 @@ class PermissionService {
     _userDepartments[userId] = Set<String>.from(departmentIds);
   }
 
+  /// Sets whether [userId] is suspended.
+  void setUserSuspended(String userId, bool isSuspended) {
+    if (isSuspended) {
+      _suspendedUserIds.add(userId);
+    } else {
+      _suspendedUserIds.remove(userId);
+    }
+  }
+
+  /// Returns whether [userId] (or [currentUserId] if omitted) is suspended.
+  bool isUserSuspended([String? userId]) {
+    final uid = userId ?? currentUserId;
+    if (uid == null) return false;
+    return _suspendedUserIds.contains(uid);
+  }
+
   /// Clears all cached grants and the current user. Call on logout.
   void reset() {
     _permissions.clear();
@@ -119,6 +139,7 @@ class PermissionService {
     _rolePermissions.clear();
     _userRoles.clear();
     _userDepartments.clear();
+    _suspendedUserIds.clear();
     currentUserId = null;
   }
 
@@ -161,13 +182,16 @@ class PermissionService {
   ///     and bypass department scoping.
   ///   * HOD permissions are restricted to their assigned department by default.
   ///   * When [userId] is omitted, [currentUserId] is used.
+  ///
+  /// Enforces strict fail-closed checks: immediately returns `false` if the
+  /// resolved user id is null or the user is marked as suspended.
   bool hasPermission(
     String permissionCode, {
     String? userId,
     String? departmentId,
   }) {
     final uid = userId ?? currentUserId;
-    if (uid == null) return false;
+    if (uid == null || isUserSuspended(uid)) return false;
 
     final roleIds = _userRoles[uid];
     if (roleIds == null || roleIds.isEmpty) return false;
@@ -209,10 +233,54 @@ class PermissionService {
     return false;
   }
 
+  /// Returns `true` when the user holds *all* of [permissions].
+  ///
+  /// Enforces strict fail-closed checks: immediately returns `false` if the
+  /// resolved user id is null, the user is suspended, or [permissions] is empty.
+  bool hasAllPermissions(
+    Iterable<String> permissions, {
+    String? userId,
+    String? departmentId,
+  }) {
+    final uid = userId ?? currentUserId;
+    if (uid == null || isUserSuspended(uid) || permissions.isEmpty) {
+      return false;
+    }
+
+    for (final p in permissions) {
+      if (!hasPermission(p, userId: uid, departmentId: departmentId)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  /// Returns `true` when the user holds *any* of [permissions].
+  ///
+  /// Enforces strict fail-closed checks: immediately returns `false` if the
+  /// resolved user id is null, the user is suspended, or [permissions] is empty.
+  bool hasAnyPermission(
+    Iterable<String> permissions, {
+    String? userId,
+    String? departmentId,
+  }) {
+    final uid = userId ?? currentUserId;
+    if (uid == null || isUserSuspended(uid) || permissions.isEmpty) {
+      return false;
+    }
+
+    for (final p in permissions) {
+      if (hasPermission(p, userId: uid, departmentId: departmentId)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   /// Returns whether the user has role-management authority (Admin, Principal, or Vice Principal).
   bool canManageRoles({String? userId}) {
     final uid = userId ?? currentUserId;
-    if (uid == null) return false;
+    if (uid == null || isUserSuspended(uid)) return false;
 
     final roleIds = _userRoles[uid];
     if (roleIds == null || roleIds.isEmpty) return false;
@@ -235,7 +303,7 @@ class PermissionService {
   /// department-accurate enforcement.
   Set<String> permissionsForUser(String? userId) {
     final uid = userId ?? currentUserId;
-    if (uid == null) return <String>{};
+    if (uid == null || isUserSuspended(uid)) return <String>{};
 
     final roleIds = _userRoles[uid];
     if (roleIds == null || roleIds.isEmpty) return <String>{};
@@ -263,12 +331,14 @@ class PermissionService {
   /// Role ids currently assigned to [userId] (or current user).
   Set<String> roleIdsForUser(String? userId) {
     final uid = userId ?? currentUserId;
+    if (uid == null || isUserSuspended(uid)) return <String>{};
     return _userRoles[uid] ?? <String>{};
   }
 
   /// Department ids [userId] (or current user) is scoped to.
   Set<String> departmentIdsForUser(String? userId) {
     final uid = userId ?? currentUserId;
+    if (uid == null || isUserSuspended(uid)) return <String>{};
     return _userDepartments[uid] ?? <String>{};
   }
 

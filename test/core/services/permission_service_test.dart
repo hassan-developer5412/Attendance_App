@@ -98,6 +98,49 @@ void main() {
   group('no current user', () {
     test('returns false when no user is logged in', () {
       expect(service.hasPermission(PermissionCodes.studentCreate), isFalse);
+      expect(
+        service.hasAllPermissions([PermissionCodes.studentCreate]),
+        isFalse,
+      );
+      expect(
+        service.hasAnyPermission([PermissionCodes.studentCreate]),
+        isFalse,
+      );
+    });
+  });
+
+  group('suspended user fail-closed', () {
+    test('suspended user immediately fails all permission checks', () {
+      final adminRole = Role(
+        id: 'r_adm',
+        name: 'Admin',
+        code: 'admin',
+        isInstituteWide: true,
+      );
+      service.loadRoles([adminRole]);
+      service.assignRoleToUser('u_susp', adminRole.id);
+      service.currentUserId = 'u_susp';
+      service.setUserSuspended('u_susp', true);
+
+      expect(service.isUserSuspended('u_susp'), isTrue);
+      expect(service.isUserSuspended(), isTrue);
+      expect(service.hasPermission(PermissionCodes.studentCreate), isFalse);
+      expect(
+        service.hasAllPermissions([PermissionCodes.studentCreate]),
+        isFalse,
+      );
+      expect(
+        service.hasAnyPermission([PermissionCodes.studentCreate]),
+        isFalse,
+      );
+      expect(service.canManageRoles(), isFalse);
+      expect(service.permissionsForUser('u_susp'), isEmpty);
+    });
+
+    test('empty permissions list fail-closed returns false', () {
+      service.currentUserId = 'u1';
+      expect(service.hasAllPermissions([]), isFalse);
+      expect(service.hasAnyPermission([]), isFalse);
     });
   });
 }

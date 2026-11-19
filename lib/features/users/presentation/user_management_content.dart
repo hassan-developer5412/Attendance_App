@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
+import 'package:attendance_app/core/models/role.dart';
 import 'package:attendance_app/core/models/user.dart';
+import 'package:attendance_app/core/repositories/role_repository.dart';
+import 'package:attendance_app/core/repositories/user_role_repository.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
@@ -11,7 +14,7 @@ import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Screen for managing system users, staff allocations, and account security.
-/// Accessible ONLY by Admin and HOD roles.
+/// Accessible by users with role management or user permissions.
 class UserManagementContent extends StatefulWidget {
   const UserManagementContent({super.key});
 
@@ -41,24 +44,16 @@ class _UserManagementContentState extends State<UserManagementContent> {
     super.dispose();
   }
 
-  bool _isUserAuthorized(AuthStore authStore, RBACStore rbacStore) {
-    final role = authStore.currentUserRole;
-    if (role == UserRole.admin ||
-        role == UserRole.principal ||
-        role == UserRole.vicePrincipal ||
-        role == UserRole.hod) {
+  bool _isUserAuthorized(RBACStore rbacStore) {
+    if (rbacStore.hasPermission('user.manage_roles')) {
       return true;
     }
     return rbacStore.hasPermission(PermissionCodes.userView) ||
         rbacStore.hasPermission(PermissionCodes.userCreate);
   }
 
-  bool _isAdmin(AuthStore authStore, RBACStore rbacStore) {
-    final role = authStore.currentUserRole;
-    return role == UserRole.admin ||
-        role == UserRole.principal ||
-        role == UserRole.vicePrincipal ||
-        rbacStore.currentUserRoles.any((r) => r.isInstituteWide || r.code == 'admin');
+  bool _canManageRoles(RBACStore rbacStore) {
+    return rbacStore.hasPermission('user.manage_roles');
   }
 
   List<User> _filteredUsers(List<User> users) {
@@ -82,7 +77,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
 
   Future<void> _showCreateUserDialog(
     BuildContext context, {
-    required bool isAdmin,
+    required bool canManageRoles,
   }) async {
     final instituteStore = context.read<InstituteStore>();
     final userStore = context.read<UserStore>();
@@ -95,7 +90,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
     final passwordController = TextEditingController(text: 'Welcome@123');
     final emailController = TextEditingController();
 
-    UserRole selectedRole = isAdmin ? UserRole.teacher : UserRole.student;
+    UserRole selectedRole = canManageRoles ? UserRole.teacher : UserRole.student;
     String? selectedDeptId;
     String? selectedClassId;
     bool obscurePassword = true;
@@ -117,9 +112,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             final isStudent = selectedRole == UserRole.student;
-            final isTeacherOrStaff = selectedRole == UserRole.teacher ||
-                selectedRole == UserRole.hod ||
-                selectedRole == UserRole.admin;
+            final isTeacherOrStaff = !isStudent;
 
             return AlertDialog(
               title: Row(
@@ -164,7 +157,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
                             prefixIcon: Icon(Icons.badge_rounded),
                           ),
                           items: [
-                            if (isAdmin) ...[
+                            if (canManageRoles) ...[
                               const DropdownMenuItem(
                                 value: UserRole.admin,
                                 child: Text('Administrator (Full Institute Access)'),
@@ -426,76 +419,332 @@ class _UserManagementContentState extends State<UserManagementContent> {
   }
 
   Future<void> _showAssignRoleDialog(BuildContext context, User user) async {
+    final userRoleRepo = UserRoleRepository();
+    final rbacStore = context.read<RBACStore>();
+    final instituteStore = context.read<InstituteStore>();
     final userStore = context.read<UserStore>();
-    UserRole selectedRole = user.role;
+    final authStore = context.read<AuthStore>();
+
+    // Load available roles backed by RBACStore.roles
+    List<Role> availableRoles = rbacStore.roles;
+    if (availableRoles.isEmpty) {
+      try {
+        availableRoles = await RoleRepository().getAll();
+      } catch (_) {}
+    }
+    availableRoles = availableRoles.where((r) => !r.isDeleted).toList()
+      ..sort((a, b) => a.name.compareTo(b.name));
+
+    // Load available departments
+    final availableDepartments = instituteStore.activeDepartments.isNotEmpty
+        ? instituteStore.activeDepartments
+        : instituteStore.departments;
+
+    // Load user's current role assignments
+    final currentAssignments =
+        await userRoleRepo.getAssignmentsForUser(user.id);
+    final selectedRoleIds = currentAssignments
+        .where((a) => !a.isDeleted)
+        .map((a) => a.roleId)
+        .toSet();
+
+    // Fallback: if user_roles had no assignment yet, match legacy user.role
+    if (selectedRoleIds.isEmpty) {
+      for (final r in availableRoles) {
+        if (r.code == user.role.value) {
+          selectedRoleIds.add(r.id);
+          break;
+        }
+      }
+    }
+
+    // Load user's current departments from user_departments
+    final currentDeptIds = await userRoleRepo.getDepartmentsForUser(user.id);
+    final selectedDeptIds = Set<String>.from(currentDeptIds);
+
+    if (!context.mounted) return;
+
+    bool isSaving = false;
 
     final updated = await showDialog<bool>(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
+            final theme = Theme.of(ctx);
+            final colorScheme = theme.colorScheme;
+
             return AlertDialog(
-              title: Text('Assign Role: ${user.displayName}'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
+              title: Row(
                 children: [
-                  Text(
-                    'Select new role for @${user.username}:',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  AppDropdownButtonFormField<UserRole>(
-                    initialValue: selectedRole,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.security_rounded),
+                  Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(8),
                     ),
-                    items: const [
-                      DropdownMenuItem(
-                        value: UserRole.admin,
-                        child: Text('Administrator (admin)'),
-                      ),
-                      DropdownMenuItem(
-                        value: UserRole.hod,
-                        child: Text('Head of Department (hod)'),
-                      ),
-                      DropdownMenuItem(
-                        value: UserRole.teacher,
-                        child: Text('Teacher (teacher)'),
-                      ),
-                      DropdownMenuItem(
-                        value: UserRole.student,
-                        child: Text('Student (student)'),
-                      ),
-                    ],
-                    onChanged: (val) {
-                      if (val != null) {
-                        setDialogState(() => selectedRole = val);
-                      }
-                    },
+                    child: Icon(
+                      Icons.manage_accounts_rounded,
+                      color: colorScheme.onPrimaryContainer,
+                      size: 20,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Edit User: ${user.displayName}',
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text(
+                          '@${user.username}',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ],
               ),
+              content: SizedBox(
+                width: 500,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Role Multi-Selector Chips backed by RBACStore.roles & UserRoleRepository
+                      Row(
+                        children: [
+                          Icon(Icons.shield_outlined,
+                              size: 18, color: colorScheme.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Assigned Roles',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Select one or more roles for this account:',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (availableRoles.isEmpty)
+                        Text(
+                          'No roles defined in catalogue.',
+                          style: TextStyle(color: colorScheme.error),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: availableRoles.map((role) {
+                            final isSelected =
+                                selectedRoleIds.contains(role.id);
+                            return FilterChip(
+                              key: ValueKey('role_chip_${role.code}'),
+                              label: Text(role.name),
+                              selected: isSelected,
+                              tooltip: role.description.isNotEmpty
+                                  ? role.description
+                                  : null,
+                              onSelected: isSaving
+                                  ? null
+                                  : (selected) {
+                                      setDialogState(() {
+                                        if (selected) {
+                                          selectedRoleIds.add(role.id);
+                                        } else {
+                                          selectedRoleIds.remove(role.id);
+                                        }
+                                      });
+                                    },
+                            );
+                          }).toList(),
+                        ),
+                      const SizedBox(height: 20),
+                      const Divider(),
+                      const SizedBox(height: 12),
+
+                      // Department Multi-Selector (user_departments)
+                      Row(
+                        children: [
+                          Icon(Icons.apartment_rounded,
+                              size: 18, color: colorScheme.primary),
+                          const SizedBox(width: 6),
+                          Text(
+                            'Assigned Departments',
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Assign staff to one or more departments (user_departments scope):',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      if (availableDepartments.isEmpty)
+                        Text(
+                          'No active departments found.',
+                          style:
+                              TextStyle(color: colorScheme.onSurfaceVariant),
+                        )
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: availableDepartments.map((dept) {
+                            final isSelected =
+                                selectedDeptIds.contains(dept.id);
+                            return FilterChip(
+                              key: ValueKey('dept_chip_${dept.id}'),
+                              label: Text('${dept.code} — ${dept.name}'),
+                              selected: isSelected,
+                              onSelected: isSaving
+                                  ? null
+                                  : (selected) {
+                                      setDialogState(() {
+                                        if (selected) {
+                                          selectedDeptIds.add(dept.id);
+                                        } else {
+                                          selectedDeptIds.remove(dept.id);
+                                        }
+                                      });
+                                    },
+                            );
+                          }).toList(),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
+                  onPressed:
+                      isSaving ? null : () => Navigator.of(ctx).pop(false),
                   child: const Text('Cancel'),
                 ),
-                FilledButton(
-                  onPressed: () async {
-                    try {
-                      await userStore.updateUserRole(user.id, selectedRole);
-                      if (ctx.mounted) Navigator.of(ctx).pop(true);
-                    } catch (e) {
-                      if (ctx.mounted) {
-                        ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(content: Text('Error updating role: $e')),
-                        );
-                      }
-                    }
-                  },
-                  child: const Text('Update Role'),
+                FilledButton.icon(
+                  onPressed: isSaving
+                      ? null
+                      : () async {
+                          if (selectedRoleIds.isEmpty) {
+                            ScaffoldMessenger.of(ctx).showSnackBar(
+                              const SnackBar(
+                                content:
+                                    Text('Please select at least one role.'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                            return;
+                          }
+
+                          setDialogState(() => isSaving = true);
+
+                          try {
+                            // 1. Synchronize roles in user_roles via UserRoleRepository
+                            final current = await userRoleRepo
+                                .getAssignmentsForUser(user.id);
+                            final existingIds = current
+                                .where((a) => !a.isDeleted)
+                                .map((a) => a.roleId)
+                                .toSet();
+
+                            // Assign newly selected roles
+                            for (final roleId in selectedRoleIds) {
+                              if (!existingIds.contains(roleId)) {
+                                await userRoleRepo.assignRoleToUser(
+                                  userId: user.id,
+                                  roleId: roleId,
+                                  assignedBy: authStore.currentUser?.id,
+                                );
+                              }
+                            }
+
+                            // Revoke unselected roles
+                            for (final roleId in existingIds) {
+                              if (!selectedRoleIds.contains(roleId)) {
+                                await userRoleRepo.revokeRoleFromUser(
+                                  user.id,
+                                  roleId,
+                                );
+                              }
+                            }
+
+                            // 2. Synchronize departments in user_departments via UserRoleRepository
+                            await userRoleRepo.setUserDepartments(
+                              userId: user.id,
+                              departmentIds: selectedDeptIds,
+                            );
+
+                            // 3. Keep legacy user.role in sync with highest selected role
+                            final selectedRoles = availableRoles
+                                .where((r) => selectedRoleIds.contains(r.id))
+                                .toList();
+                            UserRole? primaryRole;
+                            for (final r in selectedRoles) {
+                              final matched = UserRole.fromString(r.code);
+                              if (primaryRole == null ||
+                                  matched.index < primaryRole.index) {
+                                primaryRole = matched;
+                              }
+                            }
+                            if (primaryRole != null &&
+                                primaryRole != user.role) {
+                              await userStore.updateUserRole(
+                                user.id,
+                                primaryRole,
+                              );
+                            }
+
+                            // If this was the signed-in user, refresh RBACStore
+                            if (authStore.currentUser?.id == user.id) {
+                              await rbacStore.loadForUser(user.id);
+                            }
+
+                            await userStore.loadUsers();
+
+                            if (ctx.mounted) Navigator.of(ctx).pop(true);
+                          } catch (e) {
+                            setDialogState(() => isSaving = false);
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                      'Error updating user assignments: $e'),
+                                  backgroundColor: Colors.red.shade700,
+                                ),
+                              );
+                            }
+                          }
+                        },
+                  icon: isSaving
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.check_rounded, size: 18),
+                  label: Text(isSaving ? 'Saving...' : 'Save Assignments'),
                 ),
               ],
             );
@@ -507,7 +756,10 @@ class _UserManagementContentState extends State<UserManagementContent> {
     if (updated == true && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Role updated to ${selectedRole.value} for ${user.displayName}'),
+          content: Text(
+            'Roles and department assignments updated for ${user.displayName}',
+          ),
+          backgroundColor: Colors.green,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -517,12 +769,21 @@ class _UserManagementContentState extends State<UserManagementContent> {
   Future<void> _showAssignTeacherDialog(BuildContext context, User user) async {
     final instituteStore = context.read<InstituteStore>();
     final userStore = context.read<UserStore>();
+    final userRoleRepo = UserRoleRepository();
 
-    final departments = instituteStore.activeDepartments;
+    final departments = instituteStore.activeDepartments.isNotEmpty
+        ? instituteStore.activeDepartments
+        : instituteStore.departments;
     final classes = instituteStore.classes;
 
-    String? selectedDeptId;
+    // Load existing user_departments
+    final existingDepts = await userRoleRepo.getDepartmentsForUser(user.id);
+    final selectedDeptIds = Set<String>.from(existingDepts);
+    String? selectedDeptId =
+        selectedDeptIds.isNotEmpty ? selectedDeptIds.first : null;
     String? selectedClassId;
+
+    if (!context.mounted) return;
 
     final updated = await showDialog<bool>(
       context: context,
@@ -530,64 +791,81 @@ class _UserManagementContentState extends State<UserManagementContent> {
         return StatefulBuilder(
           builder: (ctx, setDialogState) {
             return AlertDialog(
-              title: Text('Assign Teacher: ${user.displayName}'),
+              title: Text('Assign Staff: ${user.displayName}'),
               content: SizedBox(
-                width: 440,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Assign department and primary class for @${user.username}:',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    AppDropdownButtonFormField<String?>(
-                      initialValue: selectedDeptId,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Department',
-                        prefixIcon: Icon(Icons.apartment_rounded),
+                width: 480,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Assign departments and primary class for @${user.username}:',
+                        style: Theme.of(context).textTheme.bodyMedium,
                       ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('Select Department'),
-                        ),
-                        ...departments.map(
-                          (d) => DropdownMenuItem(
-                            value: d.id,
-                            child: Text('${d.code} — ${d.name}'),
-                          ),
-                        ),
-                      ],
-                      onChanged: (val) =>
-                          setDialogState(() => selectedDeptId = val),
-                    ),
-                    const SizedBox(height: 14),
-                    AppDropdownButtonFormField<String?>(
-                      initialValue: selectedClassId,
-                      isExpanded: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Primary Class',
-                        prefixIcon: Icon(Icons.class_outlined),
+                      const SizedBox(height: 16),
+                      // Department Multi-Selector (user_departments)
+                      Text(
+                        'Assigned Departments (user_departments):',
+                        style:
+                            Theme.of(context).textTheme.labelMedium?.copyWith(
+                                  fontWeight: FontWeight.bold,
+                                ),
                       ),
-                      items: [
-                        const DropdownMenuItem(
-                          value: null,
-                          child: Text('None (General Faculty)'),
+                      const SizedBox(height: 8),
+                      if (departments.isEmpty)
+                        const Text('No departments available.')
+                      else
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: departments.map((d) {
+                            final isSelected = selectedDeptIds.contains(d.id);
+                            return FilterChip(
+                              label: Text('${d.code} — ${d.name}'),
+                              selected: isSelected,
+                              onSelected: (selected) {
+                                setDialogState(() {
+                                  if (selected) {
+                                    selectedDeptIds.add(d.id);
+                                  } else {
+                                    selectedDeptIds.remove(d.id);
+                                  }
+                                  if (selectedDeptIds.isNotEmpty) {
+                                    selectedDeptId = selectedDeptIds.first;
+                                  } else {
+                                    selectedDeptId = null;
+                                  }
+                                });
+                              },
+                            );
+                          }).toList(),
                         ),
-                        ...classes.map(
-                          (c) => DropdownMenuItem(
-                            value: c.id,
-                            child: Text(c.displayName),
+                      const SizedBox(height: 16),
+                      AppDropdownButtonFormField<String?>(
+                        initialValue: selectedClassId,
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Primary Class',
+                          prefixIcon: Icon(Icons.class_outlined),
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: null,
+                            child: Text('None (General Faculty)'),
                           ),
-                        ),
-                      ],
-                      onChanged: (val) =>
-                          setDialogState(() => selectedClassId = val),
-                    ),
-                  ],
+                          ...classes.map(
+                            (c) => DropdownMenuItem(
+                              value: c.id,
+                              child: Text(c.displayName),
+                            ),
+                          ),
+                        ],
+                        onChanged: (val) =>
+                            setDialogState(() => selectedClassId = val),
+                      ),
+                    ],
+                  ),
                 ),
               ),
               actions: [
@@ -600,14 +878,21 @@ class _UserManagementContentState extends State<UserManagementContent> {
                     try {
                       await userStore.assignTeacher(
                         userId: user.id,
-                        departmentId: selectedDeptId,
+                        departmentId: selectedDeptIds.isNotEmpty
+                            ? selectedDeptIds.first
+                            : selectedDeptId,
                         classId: selectedClassId,
+                      );
+                      await userRoleRepo.setUserDepartments(
+                        userId: user.id,
+                        departmentIds: selectedDeptIds,
                       );
                       if (ctx.mounted) Navigator.of(ctx).pop(true);
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
-                          SnackBar(content: Text('Error assigning teacher: $e')),
+                          SnackBar(
+                              content: Text('Error assigning staff: $e')),
                         );
                       }
                     }
@@ -731,12 +1016,11 @@ class _UserManagementContentState extends State<UserManagementContent> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
-    final authStore = context.watch<AuthStore>();
     final rbacStore = context.watch<RBACStore>();
     final userStore = context.watch<UserStore>();
 
-    final isAuthorized = _isUserAuthorized(authStore, rbacStore);
-    final isAdmin = _isAdmin(authStore, rbacStore);
+    final isAuthorized = _isUserAuthorized(rbacStore);
+    final canManageRoles = _canManageRoles(rbacStore);
 
     if (!isAuthorized) {
       return Center(
@@ -756,7 +1040,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
               ),
               const SizedBox(height: 8),
               Text(
-                'This screen is accessible ONLY by Institute Administrators and Heads of Department (HOD).',
+                'This screen is accessible ONLY by users with role management permissions.',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: colorScheme.onSurfaceVariant,
@@ -805,13 +1089,13 @@ class _UserManagementContentState extends State<UserManagementContent> {
                   permission: PermissionCodes.userCreate,
                   fallback: FilledButton.icon(
                     onPressed: () =>
-                        _showCreateUserDialog(context, isAdmin: isAdmin),
+                        _showCreateUserDialog(context, canManageRoles: canManageRoles),
                     icon: const Icon(Icons.person_add_rounded),
                     label: const Text('Create User'),
                   ),
                   child: FilledButton.icon(
                     onPressed: () =>
-                        _showCreateUserDialog(context, isAdmin: isAdmin),
+                        _showCreateUserDialog(context, canManageRoles: canManageRoles),
                     icon: const Icon(Icons.person_add_rounded),
                     label: const Text('Create User'),
                   ),
@@ -1133,20 +1417,19 @@ class _UserManagementContentState extends State<UserManagementContent> {
                                       ),
                                     ),
 
-                                    // Action buttons (Admin only actions guarded)
-                                    if (isAdmin) ...[
-                                      // Assign Role
+                                    // Action buttons (Role management guarded)
+                                    if (canManageRoles) ...[
+                                      // Assign Roles & Departments
                                       IconButton(
                                         icon: const Icon(Icons.security_rounded),
-                                        tooltip: 'Assign / Change Role',
+                                        tooltip: 'Edit Roles & Departments',
                                         onPressed: () => _showAssignRoleDialog(
                                           context,
                                           user,
                                         ),
                                       ),
-                                      // If teacher or HOD: assign department / class
-                                      if (user.role == UserRole.teacher ||
-                                          user.role == UserRole.hod)
+                                      // If staff (not student): assign department / class
+                                      if (user.role != UserRole.student)
                                         IconButton(
                                           icon: const Icon(
                                               Icons.assignment_ind_rounded),
