@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/lab_inventory.dart';
 import 'package:attendance_app/core/repositories/lab_inventory_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 
 /// Manages laboratory inventory items backed by [LabInventoryRepository].
 ///
@@ -21,23 +22,65 @@ class LabInventoryStore extends ChangeNotifier {
 
   final List<LabInventory> _items = [];
 
+  /// Whether the current user holds an active institute-wide role.
+  /// Institute-wide users bypass department scoping and see all items.
+  bool get _isInstituteWide {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) return false;
+    return PermissionService.instance.roleIdsForUser(uid).any((roleId) {
+      final role = PermissionService.instance.roleById(roleId);
+      return role != null && !role.isDeleted && role.isInstituteWide;
+    });
+  }
+
+  /// Department ids the current user is assigned to.
+  /// Empty when unauthenticated, suspended, or not assigned to any department.
+  List<String> get _departmentIds {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) return const <String>[];
+    return PermissionService.instance.departmentIdsForUser(uid).toList();
+  }
+
+  /// Returns [items] filtered to the user's assigned [departmentId]s unless the
+  /// user holds an institute-wide role. Non-institute-wide users with no
+  /// assigned departments receive an empty list (fail-closed).
+  List<T> _scopeByDepartment<T>(
+    List<T> items,
+    String? Function(T) departmentIdOf,
+  ) {
+    if (_isInstituteWide) return List.unmodifiable(items);
+    final depts = _departmentIds;
+    if (depts.isEmpty) return <T>[];
+    return List.unmodifiable(
+      items.where((item) {
+            final d = departmentIdOf(item);
+            return d != null && depts.contains(d);
+          }).toList(),
+    );
+  }
+
   /// All non-deleted inventory items, most recently added first.
-  List<LabInventory> get items => List.unmodifiable(_items);
+  /// Department-scoped unless the user holds an institute-wide role.
+  List<LabInventory> get items =>
+      _scopeByDepartment(_items, (i) => i.departmentId);
 
   /// Items whose current stock is at or below the reorder level.
   List<LabInventory> get lowStockItems {
-    final lowStock = _items
-        .where((item) => !item.isDeleted && item.currentStock <= item.reorderLevel)
+    final lowStock = _scopeByDepartment(_items, (item) => item.departmentId)
+        .where(
+            (item) => !item.isDeleted && item.currentStock <= item.reorderLevel)
         .toList();
     lowStock.sort((a, b) => a.currentStock.compareTo(b.currentStock));
     return lowStock;
   }
 
   /// Inventory items for the given department, excluding soft-deleted items.
+  /// Respects department scoping: non-institute-wide users only see items for
+  /// departments they are assigned to.
   List<LabInventory> itemsForDepartment(String departmentId) {
-    return _items
-        .where(
-            (item) => !item.isDeleted && item.departmentId == departmentId)
+    final scoped = _scopeByDepartment(_items, (item) => item.departmentId);
+    return scoped
+        .where((item) => !item.isDeleted && item.departmentId == departmentId)
         .toList();
   }
 

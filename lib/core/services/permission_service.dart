@@ -180,8 +180,13 @@ class PermissionService {
   /// Authority rules:
   ///   * Principal/Vice Principal & Admin have institute-wide admin authority
   ///     and bypass department scoping.
-  ///   * HOD permissions are restricted to their assigned department by default.
+  ///   * Department-scoped staff roles (HOD, Lab In-Charge, Assistant and
+  ///     custom department roles) are restricted to the user's assigned
+  ///     departments when [departmentId] is supplied, unless the caller is the
+  ///     record owner (`ownerUserId != null && ownerUserId == effectiveUserId`).
   ///   * When [userId] is omitted, [currentUserId] is used.
+  ///   * [classId] is accepted for signature compatibility and reserved for
+  ///     future class-level scoping.
   ///
   /// Enforces strict fail-closed checks: immediately returns `false` if the
   /// resolved user id is null or the user is marked as suspended.
@@ -189,12 +194,28 @@ class PermissionService {
     String permissionCode, {
     String? userId,
     String? departmentId,
+    String? classId,
+    String? ownerUserId,
   }) {
+    // Resolve the effective user id. Fail-closed when no user is known.
     final uid = userId ?? currentUserId;
     if (uid == null || isUserSuspended(uid)) return false;
 
     final roleIds = _userRoles[uid];
     if (roleIds == null || roleIds.isEmpty) return false;
+
+    final userDepartments = _userDepartments[uid] ?? <String>{};
+
+    // Whether any active (non-deleted) assigned role is institute-wide.
+    final hasInstituteWideAuthority = roleIds.any((roleId) {
+      final role = _roles[roleId] ?? _rolesByCode[roleId];
+      return role != null &&
+          !role.isDeleted &&
+          (role.isInstituteWide || Role.isCodeInstituteWide(role.code));
+    });
+
+    // A user acting on their own record bypasses department scoping.
+    final isRecordOwner = ownerUserId != null && ownerUserId == uid;
 
     for (final roleId in roleIds) {
       final role = _roles[roleId] ?? _rolesByCode[roleId];
@@ -210,20 +231,19 @@ class PermissionService {
       final codes = _rolePermissions[roleId] ?? _rolePermissions[role.id];
       if (codes == null || !codes.contains(permissionCode)) continue;
 
-      // 3. Department scoping for HOD:
-      //    HOD permissions are restricted to their assigned department by default.
-      if (role.code == 'hod') {
-        if (departmentId != null) {
-          final depts = _userDepartments[uid];
-          if (depts != null && depts.contains(departmentId)) {
-            return true;
-          }
-          // Wrong department for HOD; check other roles if any.
+      // 3. Department scoping for non-institute-wide staff roles
+      //    (HOD, Lab In-Charge, Assistant and custom department roles).
+      //    Enforced only when a department constraint is supplied, the user has
+      //    no institute-wide authority, and the caller is not the record owner.
+      if (departmentId != null &&
+          !hasInstituteWideAuthority &&
+          !isRecordOwner &&
+          _isDepartmentScopedStaffRole(role)) {
+        if (!userDepartments.contains(departmentId)) {
+          // Wrong department for this role; check other roles if any.
           continue;
-        } else {
-          // Without specific department constraint, HOD holds the permission.
-          return true;
         }
+        return true;
       }
 
       // 4. Other non-institute-wide roles (Teacher, Student, Parent, etc.)
@@ -231,6 +251,15 @@ class PermissionService {
     }
 
     return false;
+  }
+
+  /// Whether [role] is a department-scoped staff role whose grants are
+  /// limited to the user's assigned departments.
+  static bool _isDepartmentScopedStaffRole(Role role) {
+    return role.code == 'hod' ||
+        role.code == 'lab_in_charge' ||
+        role.code == 'assistant' ||
+        role.isCustom;
   }
 
   /// Returns `true` when the user holds *all* of [permissions].

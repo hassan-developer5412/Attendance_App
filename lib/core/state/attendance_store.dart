@@ -4,7 +4,6 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/repositories/attendance_repository.dart';
-
 /// Manages attendance records and subject-based attendance sessions backed
 /// by [AttendanceRepository].
 ///
@@ -158,6 +157,12 @@ class AttendanceStore extends ChangeNotifier {
     _records = await _repository.getForSession(sessionId);
     notifyListeners();
   }
+
+  /// Returns the set of `classId`s and `subjectId`s the current user is
+  /// allowed to take attendance for. Empty sets mean unrestricted access.
+  Future<({Set<String> classIds, Set<String> subjectIds})>
+      getAllowedClassAndSubjectIds() async =>
+          _repository.allowedClassAndSubjectIds();
 
   // ---------------------------------------------------------------------------
   // Backward-compatible CRUD

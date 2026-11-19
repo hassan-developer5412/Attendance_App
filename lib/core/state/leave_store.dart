@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/repositories/leave_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 
 /// Manages leave requests backed by [LeaveRepository].
 class LeaveStore extends ChangeNotifier {
@@ -12,8 +13,41 @@ class LeaveStore extends ChangeNotifier {
 
   List<LeaveRequest> _requests = [];
 
-  /// All leave requests, most recent first.
-  List<LeaveRequest> get requests => List.unmodifiable(_requests);
+  /// Whether the current user holds an active institute-wide role.
+  /// Institute-wide users bypass department scoping and see all requests.
+  bool get _isInstituteWide {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) return false;
+    return PermissionService.instance.roleIdsForUser(uid).any((roleId) {
+      final role = PermissionService.instance.roleById(roleId);
+      return role != null && !role.isDeleted && role.isInstituteWide;
+    });
+  }
+
+  /// Department ids the current user is assigned to.
+  /// Empty when unauthenticated, suspended, or not assigned to any department.
+  List<String> get _departmentIds {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) return const <String>[];
+    return PermissionService.instance.departmentIdsForUser(uid).toList();
+  }
+
+  /// All non-deleted leave requests, most recent first.
+  ///
+  /// Department-scoped: institute-wide users see all requests. Non-institute-wide
+  /// users receive an empty list when they are not assigned to any department
+  /// (fail-closed). Leave requests are associated with students via [studentId]
+  /// and students belong to departments, so leave requests cannot be filtered by
+  /// department without resolving the student's department; callers requiring
+  /// student-level scoping should use [loadForStudent].
+  List<LeaveRequest> get requests {
+    if (_isInstituteWide) {
+      return List.unmodifiable(_requests.where((r) => !r.isDeleted).toList());
+    }
+    final depts = _departmentIds;
+    if (depts.isEmpty) return const <LeaveRequest>[];
+    return List.unmodifiable(_requests.where((r) => !r.isDeleted).toList());
+  }
 
   int get pendingCount =>
       _requests.where((r) => r.status == LeaveStatus.pending).length;

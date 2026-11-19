@@ -40,6 +40,10 @@ class _AttendanceContentState extends State<AttendanceContent>
   String? _selectedSubjectId;
   DateTime _selectedDate = DateTime.now();
 
+  /// Allowed class/subject IDs for the current teacher (null = unrestricted).
+  Set<String>? _allowedClassIds;
+  Set<String>? _allowedSubjectIds;
+
   final TextEditingController _remarksController = TextEditingController();
   bool _isLoadingRoster = false;
   bool _isSaving = false;
@@ -53,7 +57,11 @@ class _AttendanceContentState extends State<AttendanceContent>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _initDefaultSelections());
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _initDefaultSelections();
+      await _loadAllowedClassAndSubjectIds();
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -163,6 +171,17 @@ class _AttendanceContentState extends State<AttendanceContent>
     if (mounted) setState(() {});
     if (_selectedSubjectId != null) {
       _loadAttendanceRoster();
+    }
+  }
+
+  /// Loads the teacher's allowed class/subject IDs from RBAC. Null means
+  /// unrestricted (institute-wide or department-wide attendance permission).
+  Future<void> _loadAllowedClassAndSubjectIds() async {
+    final attendanceStore = context.read<AttendanceStore>();
+    final allowed = await attendanceStore.getAllowedClassAndSubjectIds();
+    if (mounted) {
+      _allowedClassIds = allowed.classIds;
+      _allowedSubjectIds = allowed.subjectIds;
     }
   }
 
@@ -558,6 +577,19 @@ class _AttendanceContentState extends State<AttendanceContent>
         ? instituteStore.subjectsForClassAndYear(_selectedClassId!, _selectedYear)
         : <Subject>[];
 
+    // Filter by allowed class/subject IDs for scoped (non-institute-wide,
+    // non-department-wide) teachers. Null means unrestricted access.
+    final filteredClasses = _allowedClassIds != null
+        ? availableClasses
+            .where((c) => _allowedClassIds!.contains(c.id))
+            .toList()
+        : availableClasses;
+    final filteredSubjects = _allowedSubjectIds != null
+        ? availableSubjects
+            .where((s) => _allowedSubjectIds!.contains(s.id))
+            .toList()
+        : availableSubjects;
+
     final students = _getTargetStudents();
     final draftStatuses = attendanceStore.draftStatuses;
 
@@ -678,7 +710,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                             labelText: 'Class',
                             prefixIcon: Icon(Icons.class_outlined),
                           ),
-                          items: availableClasses
+                          items: filteredClasses
                               .map(
                                 (c) => DropdownMenuItem(
                                   value: c.id,
@@ -692,7 +724,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                           onChanged: (val) {
                             setState(() {
                               _selectedClassId = val;
-                              final cls = availableClasses
+                              final cls = filteredClasses
                                   .where((c) => c.id == val)
                                   .firstOrNull;
                               if (cls != null && cls.currentYear.isNotEmpty) {
@@ -747,8 +779,8 @@ class _AttendanceContentState extends State<AttendanceContent>
                             labelText: 'Subject',
                             prefixIcon: Icon(Icons.menu_book_rounded),
                           ),
-                          items: (availableSubjects.isNotEmpty
-                                  ? availableSubjects
+                          items: (filteredSubjects.isNotEmpty
+                                  ? filteredSubjects
                                   : (_selectedClassId != null
                                       ? instituteStore
                                           .subjectsForClass(_selectedClassId!)

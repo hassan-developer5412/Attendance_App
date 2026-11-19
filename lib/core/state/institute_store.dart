@@ -10,6 +10,7 @@ import 'package:attendance_app/core/repositories/department_repository.dart';
 import 'package:attendance_app/core/repositories/faculty_repository.dart';
 import 'package:attendance_app/core/repositories/student_repository.dart';
 import 'package:attendance_app/core/repositories/subject_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 
 /// Directory of departments, sessions, classes, teachers, students, and
 /// subjects backed by SQLite repositories.
@@ -54,19 +55,61 @@ class InstituteStore extends ChangeNotifier {
   bool get isLoading => _isLoading;
   String? get errorMessage => _errorMessage;
 
-  List<Department> get departments => List.unmodifiable(_departments);
+  /// Whether the current user holds an active institute-wide role.
+  /// Institute-wide users bypass department scoping and see all records.
+  bool get _isInstituteWide {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) return false;
+    return PermissionService.instance.roleIdsForUser(uid).any((roleId) {
+      final role = PermissionService.instance.roleById(roleId);
+      return role != null && !role.isDeleted && role.isInstituteWide;
+    });
+  }
+
+  /// Department ids the current user is assigned to.
+  /// Empty when unauthenticated, suspended, or not assigned to any department.
+  List<String> get _departmentIds {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) return const <String>[];
+    return PermissionService.instance.departmentIdsForUser(uid).toList();
+  }
+
+  /// Returns [items] filtered to the user's assigned [departmentId]s unless the
+  /// user holds an institute-wide role. Non-institute-wide users with no
+  /// assigned departments receive an empty list (fail-closed).
+  List<T> _scopeByDepartment<T>(
+    List<T> items,
+    String? Function(T) departmentIdOf,
+  ) {
+    if (_isInstituteWide) return List.unmodifiable(items);
+    final depts = _departmentIds;
+    if (depts.isEmpty) return <T>[];
+    return List.unmodifiable(
+      items.where((item) {
+            final d = departmentIdOf(item);
+            return d != null && depts.contains(d);
+          }).toList(),
+    );
+  }
+
+  List<Department> get departments =>
+      _scopeByDepartment(_departments, (d) => d.id);
   List<Department> get activeDepartments =>
-      List.unmodifiable(_departments.where((d) => d.isActive && !d.isDeleted));
+      departments.where((d) => d.isActive && !d.isDeleted).toList();
   List<AcademicSession> get academicSessions =>
       List.unmodifiable(_academicSessions);
   AcademicSession? get currentAcademicSession =>
       _academicSessions.where((s) => s.isCurrent && !s.isDeleted).firstOrNull ??
       _academicSessions.where((s) => !s.isDeleted).firstOrNull;
 
-  List<SchoolClass> get classes => List.unmodifiable(_classes);
-  List<Teacher> get teachers => List.unmodifiable(_teachers);
-  List<Student> get students => List.unmodifiable(_students);
-  List<Subject> get subjects => List.unmodifiable(_subjects);
+  List<SchoolClass> get classes =>
+      _scopeByDepartment(_classes, (c) => c.departmentId);
+  List<Teacher> get teachers =>
+      _scopeByDepartment(_teachers, (t) => t.departmentId);
+  List<Student> get students =>
+      _scopeByDepartment(_students, (s) => s.departmentId);
+  List<Subject> get subjects =>
+      _scopeByDepartment(_subjects, (s) => s.departmentId);
 
   int get departmentCount => _departments.where((d) => !d.isDeleted).length;
   int get activeDepartmentCount =>

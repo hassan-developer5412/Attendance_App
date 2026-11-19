@@ -120,12 +120,25 @@ class LeaveRepository {
     LeaveStatus newStatus, {
     String? remarks,
   }) async {
-    if (PermissionService.instance.currentUserId != null &&
+    final currentUserId = PermissionService.instance.currentUserId;
+
+    if (currentUserId != null &&
         !PermissionService.instance.hasPermission(PermissionCodes.leaveApprove)) {
       throw PermissionDeniedException(
         PermissionCodes.leaveApprove,
-        userId: PermissionService.instance.currentUserId,
+        userId: currentUserId,
       );
+    }
+
+    // Prevent users with leave.approve from approving their own requests.
+    final request = await getById(id);
+    if (currentUserId != null && request != null) {
+      if (request.studentId != null && request.studentId == currentUserId) {
+        throw PermissionDeniedException(
+          PermissionCodes.leaveApprove,
+          userId: currentUserId,
+        );
+      }
     }
 
     final db = await _dbHelper.database;

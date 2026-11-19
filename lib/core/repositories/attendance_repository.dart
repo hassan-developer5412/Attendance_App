@@ -1,6 +1,7 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/date_utils.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
@@ -28,6 +29,125 @@ class AttendanceRepository {
   }
 
   // -------------------------------------------------------------------------
+  // Teacher-scoped class / subject authorization
+  // -------------------------------------------------------------------------
+
+  /// Derives the set of `classId`s and `subjectId`s the current user is
+  /// allowed to take attendance for.
+  ///
+  /// The allowed sets come from `subjects.teacher_id` and
+  /// `timetable_slots.teacher_id`, linked via `teachers.user_id =
+  /// currentUserId`.
+  ///
+  /// Returns empty sets (no restriction) when the user holds an institute-wide
+  /// role or a department-wide attendance permission, meaning no filtering is
+  /// applied. Returns non-empty sets when the user is a regular teacher whose
+  /// access must be limited to their own teaching assignments.
+  Future<({Set<String> classIds, Set<String> subjectIds})>
+      allowedClassAndSubjectIds() async {
+    final uid = PermissionService.instance.currentUserId;
+    if (uid == null) {
+      return (classIds: <String>{}, subjectIds: <String>{});
+    }
+
+    // 1. Institute-wide roles bypass all scoping.
+    final roleIds = PermissionService.instance.roleIdsForUser(uid);
+    final hasInstituteWide = roleIds.any((rid) {
+      final role = PermissionService.instance.roleById(rid);
+      return role != null && !role.isDeleted && role.isInstituteWide;
+    });
+    if (hasInstituteWide) {
+      return (classIds: <String>{}, subjectIds: <String>{});
+    }
+
+    // 2. Department-wide attendance permission bypasses scoping.
+    final depts = PermissionService.instance.departmentIdsForUser(uid);
+    final hasDeptWide = depts.any((d) =>
+        PermissionService.instance.hasPermission('attendance.view',
+            departmentId: d));
+    if (hasDeptWide) {
+      return (classIds: <String>{}, subjectIds: <String>{});
+    }
+
+    // 3. Plain `attendance.view` without department constraint also grants
+    //    unrestricted access.
+    if (PermissionService.instance.hasPermission('attendance.view')) {
+      return (classIds: <String>{}, subjectIds: <String>{});
+    }
+
+    // 4. Regular teacher: derive allowed IDs from their teaching assignments.
+    final db = await _dbHelper.database;
+    final teacherRows = await db.query(
+      'teachers',
+      where: 'user_id = ? AND is_deleted = 0',
+      whereArgs: [uid],
+    );
+    if (teacherRows.isEmpty) {
+      return (classIds: <String>{}, subjectIds: <String>{});
+    }
+    final teacherId = teacherRows.first['id'] as String;
+
+    final classIds = <String>{};
+    final subjectIds = <String>{};
+
+    // From subjects.teacher_id
+    final subjectRows = await db.query(
+      'subjects',
+      where: 'teacher_id = ? AND is_deleted = 0',
+      whereArgs: [teacherId],
+    );
+    for (final row in subjectRows) {
+      subjectIds.add(row['id'] as String);
+      final cid = row['class_id'] as String?;
+      if (cid != null && cid.isNotEmpty) classIds.add(cid);
+    }
+
+    // From timetable_slots.teacher_id
+    final ttRows = await db.query(
+      'timetable_slots',
+      where: 'teacher_id = ? AND is_deleted = 0',
+      whereArgs: [teacherId],
+    );
+    for (final row in ttRows) {
+      final cid = row['class_id'] as String?;
+      if (cid != null && cid.isNotEmpty) classIds.add(cid);
+      final sid = row['subject_id'] as String?;
+      if (sid != null && sid.isNotEmpty) subjectIds.add(sid);
+    }
+
+    return (classIds: classIds, subjectIds: subjectIds);
+  }
+
+  /// Validates [classId] and [subjectId] against the current user's allowed
+  /// sets. Throws [PermissionDeniedException] when the user is not authorized
+  /// to manage attendance for the given class or subject.
+  /// No-op when the user has unrestricted (institute-wide / department-wide)
+  /// access.
+  Future<void> ensureClassAndSubjectAuthorized(
+    String classId,
+    String subjectId,
+  ) async {
+    final allowed = await allowedClassAndSubjectIds();
+    final uid = PermissionService.instance.currentUserId;
+
+    if (allowed.classIds.isNotEmpty && !allowed.classIds.contains(classId)) {
+      throw PermissionDeniedException(
+        PermissionCodes.attendanceMark,
+        userId: uid,
+        departmentId: null,
+      );
+    }
+    if (allowed.subjectIds.isNotEmpty &&
+        !allowed.subjectIds.contains(subjectId)) {
+      throw PermissionDeniedException(
+        PermissionCodes.attendanceMark,
+        userId: uid,
+        departmentId: null,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Upsert methods
   // -------------------------------------------------------------------------
   Future<void> upsertAttendanceForSession({
@@ -37,7 +157,23 @@ class AttendanceRepository {
     DateTime? checkInTime,
     bool isOverride = false,
   }) async {
+    // Authorize class/subject access for non-institute-wide / non-department-wide users.
+    // Resolve classId/subjectId from the session.
     final db = await _dbHelper.database;
+    final sessionRows = await db.query(
+      'attendance_sessions',
+      where: 'id = ? AND is_deleted = 0',
+      whereArgs: [sessionId],
+      limit: 1,
+    );
+    if (sessionRows.isNotEmpty) {
+      final sclassId = sessionRows.first['class_id'] as String?;
+      final ssubjectId = sessionRows.first['subject_id'] as String?;
+      if (sclassId != null && ssubjectId != null) {
+        await ensureClassAndSubjectAuthorized(sclassId, ssubjectId);
+      }
+    }
+
     final existing = await db.query(
       'attendance_records',
       where: 'session_id = ? AND student_id = ?',
@@ -185,6 +321,9 @@ class AttendanceRepository {
     String? teacherId,
     String remarks = '',
   }) async {
+    // Authorize class/subject access for non-institute-wide / non-department-wide users.
+    await ensureClassAndSubjectAuthorized(classId, subjectId);
+
     final db = await _dbHelper.database;
     final dateStr = AppDateUtils.dateKey(date);
     final sessionId = sessionIdFor(

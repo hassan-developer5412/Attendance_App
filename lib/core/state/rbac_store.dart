@@ -199,9 +199,21 @@ class RBACStore extends ChangeNotifier {
   /// `currentUserId == null`, the user is suspended, or the store is
   /// unauthenticated/unloaded.
   ///
-  /// When [departmentId] is supplied, department-scoped roles (e.g. HOD) are
-  /// only satisfied if the current user is assigned to that department.
-  bool hasPermission(String permission, {String? departmentId}) {
+  /// When [departmentId] is supplied, department-scoped roles (e.g. HOD, Lab
+  /// In-Charge, Assistant and custom department roles) are only satisfied if
+  /// the current user is assigned to that department, unless the caller is the
+  /// record owner (`ownerUserId != null && ownerUserId == currentUserId`).
+  ///
+  /// [classId] is accepted for signature compatibility and reserved for future
+  /// class-level scoping. When [userId] is supplied it overrides the effective
+  /// user id passed through to [PermissionService.hasPermission].
+  bool hasPermission(
+    String permission, {
+    String? userId,
+    String? departmentId,
+    String? classId,
+    String? ownerUserId,
+  }) {
     if (currentUserId == null ||
         !isAuthenticated ||
         !isLoaded ||
@@ -210,8 +222,10 @@ class RBACStore extends ChangeNotifier {
     }
     return PermissionService.instance.hasPermission(
       permission,
-      userId: currentUserId,
+      userId: userId ?? currentUserId,
       departmentId: departmentId,
+      classId: classId,
+      ownerUserId: ownerUserId,
     );
   }
 
