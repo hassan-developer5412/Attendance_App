@@ -17,6 +17,14 @@ class UserRoleRepository {
 
   final DatabaseHelper _dbHelper;
 
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// roles. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireRoleManage() {
+    if (!PermissionService.instance.canManageRoles()) {
+      throw PermissionDeniedException(PermissionCodes.userManageRoles);
+    }
+  }
+
   /// Roles currently assigned to [userId] (as full [Role] objects).
   Future<List<Role>> getRolesForUser(
     String userId, {
@@ -62,13 +70,7 @@ class UserRoleRepository {
     String? assignedBy,
     String? instituteId,
   }) async {
-    if (PermissionService.instance.currentUserId != null &&
-        !PermissionService.instance.canManageRoles()) {
-      throw PermissionDeniedException(
-        PermissionCodes.userManageRoles,
-        userId: PermissionService.instance.currentUserId,
-      );
-    }
+    _requireRoleManage();
 
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
@@ -98,13 +100,7 @@ class UserRoleRepository {
 
   /// Revokes [roleId] from [userId].
   Future<void> revokeRoleFromUser(String userId, String roleId) async {
-    if (PermissionService.instance.currentUserId != null &&
-        !PermissionService.instance.canManageRoles()) {
-      throw PermissionDeniedException(
-        PermissionCodes.userManageRoles,
-        userId: PermissionService.instance.currentUserId,
-      );
-    }
+    _requireRoleManage();
 
     final db = await _dbHelper.database;
     await db.delete(
@@ -122,13 +118,7 @@ class UserRoleRepository {
 
   /// Revokes every role from [userId].
   Future<void> revokeAllRolesForUser(String userId) async {
-    if (PermissionService.instance.currentUserId != null &&
-        !PermissionService.instance.canManageRoles()) {
-      throw PermissionDeniedException(
-        PermissionCodes.userManageRoles,
-        userId: PermissionService.instance.currentUserId,
-      );
-    }
+    _requireRoleManage();
 
     final db = await _dbHelper.database;
     await db.update(
@@ -165,13 +155,7 @@ class UserRoleRepository {
     required String userId,
     required Iterable<String> departmentIds,
   }) async {
-    if (PermissionService.instance.currentUserId != null &&
-        !PermissionService.instance.canManageRoles()) {
-      throw PermissionDeniedException(
-        PermissionCodes.userManageRoles,
-        userId: PermissionService.instance.currentUserId,
-      );
-    }
+    _requireRoleManage();
 
     final ids = Set<String>.from(departmentIds);
     final db = await _dbHelper.database;

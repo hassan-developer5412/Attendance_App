@@ -11,6 +11,51 @@ class FacultyRepository {
 
   final DatabaseHelper _dbHelper;
 
+  /// Throws [PermissionDeniedException] unless the current user can create
+  /// teachers. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireTeacherCreate({String? departmentId}) {
+    if (!PermissionService.instance.hasPermission(
+          PermissionCodes.teacherCreate,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.teacherCreate,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: departmentId,
+      );
+    }
+  }
+
+  /// Throws [PermissionDeniedException] unless the current user can edit
+  /// teachers. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireTeacherEdit({String? departmentId}) {
+    if (!PermissionService.instance.hasPermission(
+          PermissionCodes.teacherEdit,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.teacherEdit,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: departmentId,
+      );
+    }
+  }
+
+  /// Throws [PermissionDeniedException] unless the current user can delete
+  /// teachers. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireTeacherDelete({String? departmentId}) {
+    if (!PermissionService.instance.hasPermission(
+          PermissionCodes.teacherDelete,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(
+        PermissionCodes.teacherDelete,
+        userId: PermissionService.instance.currentUserId,
+        departmentId: departmentId,
+      );
+    }
+  }
+
   Future<List<Teacher>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
     final rows = await db.query(
@@ -45,17 +90,7 @@ class FacultyRepository {
     String designation = 'Instructor',
     String? departmentId,
   }) async {
-    if (PermissionService.instance.currentUserId != null &&
-        !PermissionService.instance.hasPermission(
-          PermissionCodes.teacherCreate,
-          departmentId: departmentId,
-        )) {
-      throw PermissionDeniedException(
-        PermissionCodes.teacherCreate,
-        userId: PermissionService.instance.currentUserId,
-        departmentId: departmentId,
-      );
-    }
+    _requireTeacherCreate(departmentId: departmentId);
 
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
@@ -96,17 +131,7 @@ class FacultyRepository {
   }
 
   Future<void> update(Teacher teacher) async {
-    if (PermissionService.instance.currentUserId != null &&
-        !PermissionService.instance.hasPermission(
-          PermissionCodes.teacherEdit,
-          departmentId: teacher.departmentId,
-        )) {
-      throw PermissionDeniedException(
-        PermissionCodes.teacherEdit,
-        userId: PermissionService.instance.currentUserId,
-        departmentId: teacher.departmentId,
-      );
-    }
+    _requireTeacherEdit(departmentId: teacher.departmentId);
 
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
@@ -137,19 +162,8 @@ class FacultyRepository {
   }
 
   Future<void> softDelete(String id) async {
-    if (PermissionService.instance.currentUserId != null) {
-      final teacher = await getById(id);
-      if (!PermissionService.instance.hasPermission(
-        PermissionCodes.teacherDelete,
-        departmentId: teacher?.departmentId,
-      )) {
-        throw PermissionDeniedException(
-          PermissionCodes.teacherDelete,
-          userId: PermissionService.instance.currentUserId,
-          departmentId: teacher?.departmentId,
-        );
-      }
-    }
+    final teacher = await getById(id);
+    _requireTeacherDelete(departmentId: teacher?.departmentId);
 
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();

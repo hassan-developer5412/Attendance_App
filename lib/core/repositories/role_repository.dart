@@ -15,6 +15,14 @@ class RoleRepository {
 
   final DatabaseHelper _dbHelper;
 
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// roles. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireRoleManage() {
+    if (!PermissionService.instance.canManageRoles()) {
+      throw PermissionDeniedException(PermissionCodes.userManageRoles);
+    }
+  }
+
   /// All roles, optionally including soft-deleted ones.
   Future<List<Role>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
@@ -61,6 +69,7 @@ class RoleRepository {
     bool isInstituteWide = false,
     String instituteId = AppConstants.defaultInstituteId,
   }) async {
+    _requireRoleManage();
     final db = await _dbHelper.database;
     final id = UuidUtils.generate();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -105,6 +114,7 @@ class RoleRepository {
 
   /// Updates an existing role's details.
   Future<void> update(Role role) async {
+    _requireRoleManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -134,6 +144,7 @@ class RoleRepository {
 
   /// Soft deletes a role by [id].
   Future<void> softDelete(String id) async {
+    _requireRoleManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -177,6 +188,7 @@ class RoleRepository {
 
   /// Grants [permissionCode] to [roleId] and mirrors to cache.
   Future<void> grantPermission(String roleId, String permissionCode) async {
+    _requireRoleManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
 
@@ -194,6 +206,7 @@ class RoleRepository {
 
   /// Revokes [permissionCode] from [roleId] and mirrors to cache.
   Future<void> revokePermission(String roleId, String permissionCode) async {
+    _requireRoleManage();
     final db = await _dbHelper.database;
 
     await db.delete(
@@ -210,6 +223,7 @@ class RoleRepository {
     String roleId,
     Iterable<String> permissionCodes,
   ) async {
+    _requireRoleManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
 
