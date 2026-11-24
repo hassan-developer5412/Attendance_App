@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/department.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
 class DepartmentRepository {
@@ -7,6 +9,14 @@ class DepartmentRepository {
       : _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
   final DatabaseHelper _dbHelper;
+
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// settings. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireSettingManage() {
+    if (!PermissionService.instance.hasPermission(PermissionCodes.settingManage)) {
+      throw PermissionDeniedException(PermissionCodes.settingManage);
+    }
+  }
 
   Future<List<Department>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
@@ -54,6 +64,7 @@ class DepartmentRepository {
   }
 
   Future<Department> insert(Department department) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     await db.insert('departments', department.toMap());
     SyncService.instance.schedulePush(
@@ -65,6 +76,7 @@ class DepartmentRepository {
   }
 
   Future<void> update(Department department) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     final updated = department.copyWith(
       updatedAt: DateTime.now().toUtc(),

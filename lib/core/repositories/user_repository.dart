@@ -6,6 +6,7 @@ import 'package:crypto/crypto.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/user.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
@@ -39,6 +40,31 @@ class UserRepository {
       : _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
   final DatabaseHelper _dbHelper;
+
+  /// Throws [PermissionDeniedException] unless the current user may create
+  /// users. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireUserCreate() {
+    if (!PermissionService.instance.hasPermission(PermissionCodes.userCreate)) {
+      throw PermissionDeniedException(PermissionCodes.userCreate);
+    }
+  }
+
+  /// Throws [PermissionDeniedException] unless the current user may edit user
+  /// profiles. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireUserEdit() {
+    if (!PermissionService.instance.hasPermission(PermissionCodes.userEdit)) {
+      throw PermissionDeniedException(PermissionCodes.userEdit);
+    }
+  }
+
+  /// Throws [PermissionDeniedException] unless the current user may manage
+  /// user roles/suspension. Fail-closed: unauthenticated or suspended users
+  /// are denied.
+  void _requireUserManageRoles() {
+    if (!PermissionService.instance.hasPermission(PermissionCodes.userManageRoles)) {
+      throw PermissionDeniedException(PermissionCodes.userManageRoles);
+    }
+  }
 
   /// Maximum consecutive failed password attempts before the account is
   /// locked.
@@ -271,6 +297,7 @@ class UserRepository {
     required String displayName,
     required String email,
   }) async {
+    _requireUserEdit();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -288,6 +315,7 @@ class UserRepository {
   }
 
   Future<void> softDelete(String id) async {
+    _requireUserManageRoles();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -323,6 +351,7 @@ class UserRepository {
     String? classId,
     bool isDefaultPassword = true,
   }) async {
+    _requireUserCreate();
     final db = await _dbHelper.database;
     final id = UuidUtils.generate();
     final now = DateTime.now().toUtc().toIso8601String();
@@ -495,6 +524,7 @@ class UserRepository {
     required bool suspend,
     String? reason,
   }) async {
+    _requireUserManageRoles();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -515,6 +545,7 @@ class UserRepository {
 
   /// Updates a user's role and synchronizes with the RBAC user_roles catalogue.
   Future<void> updateUserRole(String userId, UserRole newRole) async {
+    _requireUserManageRoles();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(

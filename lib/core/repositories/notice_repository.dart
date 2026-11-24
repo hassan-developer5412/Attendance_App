@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/notice.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
 /// Local SQLite persistence for [Notice] rows, following the same pattern as
@@ -17,6 +19,14 @@ class NoticeRepository {
   // ---------------------------------------------------------------------------
   // READ
   // ---------------------------------------------------------------------------
+
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// notices. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireNoticeManage() {
+    if (!PermissionService.instance.hasPermission(PermissionCodes.noticeManage)) {
+      throw PermissionDeniedException(PermissionCodes.noticeManage);
+    }
+  }
 
   /// Returns all non-deleted notices sorted pinned-first, then newest-first.
   Future<List<Notice>> getAll({bool includeDeleted = false}) async {
@@ -97,6 +107,7 @@ class NoticeRepository {
 
   /// Inserts [notice] into SQLite and queues a Supabase push.
   Future<Notice> insert(Notice notice) async {
+    _requireNoticeManage();
     final db = await _dbHelper.database;
     await db.insert('notices', notice.toMap());
     SyncService.instance.schedulePush(
@@ -110,6 +121,7 @@ class NoticeRepository {
   /// Updates [notice] in SQLite (stamping a fresh `updated_at`) and queues a
   /// Supabase push.
   Future<void> update(Notice notice) async {
+    _requireNoticeManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
     final updated = notice.copyWith(updatedAt: now);
@@ -128,6 +140,7 @@ class NoticeRepository {
 
   /// Soft-deletes the notice with [id] and queues a Supabase push.
   Future<void> softDelete(String id) async {
+    _requireNoticeManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(

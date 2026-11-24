@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/academic_session.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
 /// Repository for academic sessions (e.g. `2025-26`, `2026-27`).
@@ -11,6 +13,14 @@ class AcademicSessionRepository {
       : _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
   final DatabaseHelper _dbHelper;
+
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// settings. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireSettingManage() {
+    if (!PermissionService.instance.hasPermission(PermissionCodes.settingManage)) {
+      throw PermissionDeniedException(PermissionCodes.settingManage);
+    }
+  }
 
   Future<List<AcademicSession>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
@@ -48,6 +58,7 @@ class AcademicSessionRepository {
   }
 
   Future<AcademicSession> insert(AcademicSession session) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     await db.insert('academic_sessions', session.toMap());
     if (session.isCurrent) {
@@ -62,6 +73,7 @@ class AcademicSessionRepository {
   }
 
   Future<void> update(AcademicSession session) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     final updated = session.copyWith(updatedAt: DateTime.now().toUtc());
     await db.update(
@@ -82,6 +94,7 @@ class AcademicSessionRepository {
 
   /// Marks [id] as the current session and clears the flag on all others.
   Future<void> setCurrent(String id) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -105,6 +118,7 @@ class AcademicSessionRepository {
 
   /// Soft deletes (archives) a session. Existing records keep referencing it.
   Future<void> softDelete(String id) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     await db.update(
       'academic_sessions',
@@ -125,6 +139,7 @@ class AcademicSessionRepository {
   }
 
   Future<void> restore(String id) async {
+    _requireSettingManage();
     final db = await _dbHelper.database;
     await db.update(
       'academic_sessions',

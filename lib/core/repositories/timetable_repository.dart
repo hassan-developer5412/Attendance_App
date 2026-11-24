@@ -1,7 +1,9 @@
 import 'package:sqflite/sqflite.dart';
 
 import 'package:attendance_app/core/database/database_helper.dart';
+import 'package:attendance_app/core/models/permission.dart';
 import 'package:attendance_app/core/models/timetable_slot.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
 /// Thrown when a timetable slot cannot be created or updated because the
@@ -23,6 +25,16 @@ class TimetableRepository {
       : _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
   final DatabaseHelper _dbHelper;
+
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// timetables. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireTimetableManage() {
+    if (!PermissionService.instance.hasPermission(
+          PermissionCodes.timetableManage,
+        )) {
+      throw PermissionDeniedException(PermissionCodes.timetableManage);
+    }
+  }
 
   /// Returns all non-deleted timetable slots.
   Future<List<TimetableSlot>> getAll() async {
@@ -75,6 +87,7 @@ class TimetableRepository {
   /// Inserts [slot] after validating there is no conflict with an existing
   /// booking for the same day + period on teacher, class, or room.
   Future<TimetableSlot> insert(TimetableSlot slot) async {
+    _requireTimetableManage();
     final db = await _dbHelper.database;
     await _assertNoConflict(db, slot, excludeId: null);
     await db.insert('timetable_slots', slot.toMap());
@@ -89,6 +102,7 @@ class TimetableRepository {
   /// Updates [slot] after validating there is no conflict with an existing
   /// booking for the same day + period on teacher, class, or room.
   Future<void> update(TimetableSlot slot) async {
+    _requireTimetableManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
     final updated = slot.copyWith(updatedAt: now);
@@ -108,6 +122,7 @@ class TimetableRepository {
 
   /// Soft-deletes the slot with [id] and queues a Supabase sync record.
   Future<void> softDelete(String id) async {
+    _requireTimetableManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(

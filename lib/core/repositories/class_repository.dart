@@ -1,5 +1,7 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
@@ -8,6 +10,18 @@ class ClassRepository {
       : _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
   final DatabaseHelper _dbHelper;
+
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// classes. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireClassManage({String? departmentId}) {
+    if (!PermissionService.instance.hasPermission(
+          PermissionCodes.classManage,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(PermissionCodes.classManage,
+          departmentId: departmentId);
+    }
+  }
 
   Future<List<SchoolClass>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
@@ -66,6 +80,7 @@ class ClassRepository {
     String? className,
     String currentYear = '',
   }) async {
+    _requireClassManage(departmentId: departmentId);
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     final resolvedClassName = (className ?? name).trim();
@@ -99,6 +114,7 @@ class ClassRepository {
   }
 
   Future<void> update(SchoolClass schoolClass) async {
+    _requireClassManage(departmentId: schoolClass.departmentId);
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
@@ -126,6 +142,16 @@ class ClassRepository {
 
   Future<void> softDelete(String id) async {
     final db = await _dbHelper.database;
+    final deptRow = await db.query(
+      'classes',
+      columns: ['department_id'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final departmentId =
+        deptRow.isNotEmpty ? deptRow.first['department_id'] as String? : null;
+    _requireClassManage(departmentId: departmentId);
     final now = DateTime.now().toUtc().toIso8601String();
     await db.transaction((txn) async {
       await txn.update(

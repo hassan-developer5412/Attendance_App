@@ -1,6 +1,7 @@
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/lab_inventory.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
 class LabInventoryRepository {
@@ -8,6 +9,18 @@ class LabInventoryRepository {
       : _dbHelper = dbHelper ?? DatabaseHelper.instance;
 
   final DatabaseHelper _dbHelper;
+
+  /// Throws [PermissionDeniedException] unless the current user can manage
+  /// lab inventory. Fail-closed: unauthenticated or suspended users are denied.
+  void _requireLabManage({String? departmentId}) {
+    if (!PermissionService.instance.hasPermission(
+          PermissionCodes.labManage,
+          departmentId: departmentId,
+        )) {
+      throw PermissionDeniedException(PermissionCodes.labManage,
+          departmentId: departmentId);
+    }
+  }
 
   Future<List<LabInventory>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
@@ -54,6 +67,7 @@ class LabInventoryRepository {
   }
 
   Future<LabInventory> insert(LabInventory item) async {
+    _requireLabManage(departmentId: item.departmentId);
     final db = await _dbHelper.database;
     await db.insert('lab_inventory', item.toMap());
     SyncService.instance.schedulePush(
@@ -65,6 +79,7 @@ class LabInventoryRepository {
   }
 
   Future<void> update(LabInventory item) async {
+    _requireLabManage(departmentId: item.departmentId);
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
     final updated = item.copyWith(updatedAt: now);
@@ -83,6 +98,16 @@ class LabInventoryRepository {
 
   Future<void> softDelete(String id) async {
     final db = await _dbHelper.database;
+    final deptRow = await db.query(
+      'lab_inventory',
+      columns: ['department_id'],
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    final departmentId =
+        deptRow.isNotEmpty ? deptRow.first['department_id'] as String? : null;
+    _requireLabManage(departmentId: departmentId);
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'lab_inventory',
