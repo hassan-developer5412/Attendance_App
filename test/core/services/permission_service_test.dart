@@ -143,4 +143,90 @@ void main() {
       expect(service.hasAnyPermission([]), isFalse);
     });
   });
+
+  group('SyncService internal bypass (withSyncBypass)', () {
+    test('bypass is active strictly within withSyncBypass scope and reverts to fail-closed afterwards', () async {
+      final teacherRole = Role(
+        id: 'r_teacher',
+        name: 'Teacher',
+        code: 'teacher',
+        isInstituteWide: false,
+      );
+      service.loadRoles([teacherRole]);
+      service.assignRoleToUser('u_teacher', teacherRole.id);
+      service.currentUserId = 'u_teacher';
+
+      // Before bypass: non-admin user cannot manage roles.
+      expect(service.isSyncBypassActive, isFalse);
+      expect(service.canManageRoles(), isFalse);
+
+      // Inside bypass: canManageRoles succeeds, while normal hasPermission stays fail-closed.
+      final result = await service.withSyncBypass(() async {
+        expect(service.isSyncBypassActive, isTrue);
+        expect(service.canManageRoles(), isTrue);
+        expect(service.hasPermission(PermissionCodes.studentCreate), isFalse);
+        return 'synced';
+      });
+
+      expect(result, equals('synced'));
+
+      // Immediately after bypass: reverts to fail-closed.
+      expect(service.isSyncBypassActive, isFalse);
+      expect(service.canManageRoles(), isFalse);
+    });
+
+    test('bypass reverts to fail-closed even when action throws', () async {
+      final studentRole = Role(
+        id: 'r_student',
+        name: 'Student',
+        code: 'student',
+        isInstituteWide: false,
+      );
+      service.loadRoles([studentRole]);
+      service.assignRoleToUser('u_student', studentRole.id);
+      service.currentUserId = 'u_student';
+
+      expect(service.canManageRoles(), isFalse);
+
+      await expectLater(
+        service.withSyncBypass(() async {
+          expect(service.isSyncBypassActive, isTrue);
+          expect(service.canManageRoles(), isTrue);
+          throw StateError('simulated sync failure');
+        }),
+        throwsStateError,
+      );
+
+      // Immediately after exception: flag is reset and fail-closed is restored.
+      expect(service.isSyncBypassActive, isFalse);
+      expect(service.canManageRoles(), isFalse);
+    });
+
+    test('unauthenticated and suspended users still fail closed inside withSyncBypass', () async {
+      // Unauthenticated (currentUserId == null)
+      await service.withSyncBypass(() async {
+        expect(service.isSyncBypassActive, isTrue);
+        expect(service.canManageRoles(), isFalse);
+      });
+      expect(service.isSyncBypassActive, isFalse);
+
+      // Suspended user
+      final teacherRole = Role(
+        id: 'r_teacher',
+        name: 'Teacher',
+        code: 'teacher',
+        isInstituteWide: false,
+      );
+      service.loadRoles([teacherRole]);
+      service.assignRoleToUser('u_susp_teacher', teacherRole.id);
+      service.currentUserId = 'u_susp_teacher';
+      service.setUserSuspended('u_susp_teacher', true);
+
+      await service.withSyncBypass(() async {
+        expect(service.isSyncBypassActive, isTrue);
+        expect(service.canManageRoles(), isFalse);
+      });
+      expect(service.isSyncBypassActive, isFalse);
+    });
+  });
 }
