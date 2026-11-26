@@ -6,6 +6,7 @@ import 'package:attendance_app/core/models/department.dart';
 import 'package:attendance_app/core/models/lab_inventory.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/lab_inventory_store.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 
@@ -101,7 +102,19 @@ class _LabInventoryContentState extends State<LabInventoryContent> {
     );
 
     if (shouldDelete == true && mounted) {
-      await store.deleteLabInventory(item.id);
+      try {
+        await store.deleteLabInventory(item.id);
+      } on PermissionDeniedException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -121,14 +134,26 @@ class _LabInventoryContentState extends State<LabInventoryContent> {
 
     if (result == null || !mounted) return;
 
-    await store.addLabInventory(
-      itemName: result.itemName,
-      departmentId: result.departmentId,
-      category: result.category,
-      currentStock: result.currentStock,
-      unit: result.unit,
-      reorderLevel: result.reorderLevel,
-    );
+    try {
+      await store.addLabInventory(
+        itemName: result.itemName,
+        departmentId: result.departmentId,
+        category: result.category,
+        currentStock: result.currentStock,
+        unit: result.unit,
+        reorderLevel: result.reorderLevel,
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
@@ -152,7 +177,19 @@ class _LabInventoryContentState extends State<LabInventoryContent> {
 
     if (result == null || !mounted) return;
 
-    await store.updateLabInventory(result.toInventory());
+    try {
+      await store.updateLabInventory(result.toInventory());
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

@@ -3,7 +3,9 @@ import 'package:provider/provider.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Page that lists subjects for a given class and lets the user add or remove them.
@@ -28,20 +30,32 @@ class _SubjectsContentState extends State<SubjectsContent> {
 
     if (result == null || !mounted) return;
 
-    await store.addSubject(
-      name: result.name,
-      code: result.code,
-      teacherName: result.teacherName,
-      classId: widget.schoolClass.id,
-      departmentId: widget.schoolClass.departmentId,
-      academicSessionId: widget.schoolClass.academicSessionId,
-      year: result.year.isNotEmpty
-          ? result.year
-          : widget.schoolClass.currentYear,
-      subjectType: result.subjectType,
-      contactHours: result.contactHours,
-      teacherId: result.teacherId,
-    );
+    try {
+      await store.addSubject(
+        name: result.name,
+        code: result.code,
+        teacherName: result.teacherName,
+        classId: widget.schoolClass.id,
+        departmentId: widget.schoolClass.departmentId,
+        academicSessionId: widget.schoolClass.academicSessionId,
+        year: result.year.isNotEmpty
+            ? result.year
+            : widget.schoolClass.currentYear,
+        subjectType: result.subjectType,
+        contactHours: result.contactHours,
+        teacherId: result.teacherId,
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -76,7 +90,19 @@ class _SubjectsContentState extends State<SubjectsContent> {
     );
 
     if (shouldDelete == true && mounted) {
-      await store.deleteSubject(subject.id);
+      try {
+        await store.deleteSubject(subject.id);
+      } on PermissionDeniedException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -107,10 +133,14 @@ class _SubjectsContentState extends State<SubjectsContent> {
         elevation: 0,
         scrolledUnderElevation: 1,
       ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showAddSubjectDialog(store),
-        icon: const Icon(Icons.add_rounded),
-        label: const Text('Add Subject'),
+      floatingActionButton: PermissionGuard(
+        permission: PermissionCodes.classManage,
+        departmentId: widget.schoolClass.departmentId,
+        child: FloatingActionButton.extended(
+          onPressed: () => _showAddSubjectDialog(store),
+          icon: const Icon(Icons.add_rounded),
+          label: const Text('Add Subject'),
+        ),
       ),
       body: SafeArea(
         child: Padding(
@@ -332,14 +362,19 @@ class _SubjectsContentState extends State<SubjectsContent> {
                                   ],
                                 ),
                               ),
-                              trailing: IconButton(
-                                tooltip: 'Delete subject',
-                                icon: Icon(
-                                  Icons.delete_outline_rounded,
-                                  color: colorScheme.error,
+                              trailing: PermissionGuard(
+                                permission: PermissionCodes.classManage,
+                                departmentId: widget.schoolClass.departmentId,
+                                fallback: const SizedBox.shrink(),
+                                child: IconButton(
+                                  tooltip: 'Delete subject',
+                                  icon: Icon(
+                                    Icons.delete_outline_rounded,
+                                    color: colorScheme.error,
+                                  ),
+                                  onPressed: () =>
+                                      _confirmDelete(store, subject),
                                 ),
-                                onPressed: () =>
-                                    _confirmDelete(store, subject),
                               ),
                             ),
                           );

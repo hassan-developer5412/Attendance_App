@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/timetable_slot.dart';
 import 'package:attendance_app/core/repositories/timetable_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
@@ -330,6 +331,9 @@ class _TimetableContentState extends State<TimetableContent> {
                         if (dialogContext.mounted) {
                           Navigator.of(dialogContext).pop();
                         }
+                      } on PermissionDeniedException catch (e) {
+                        setDialogState(() =>
+                            dialogError = 'Permission denied: ${e.permissionCode}');
                       } catch (e) {
                         setDialogState(() => dialogError = e.toString());
                       }
@@ -398,6 +402,9 @@ class _TimetableContentState extends State<TimetableContent> {
                       setDialogState(() {
                         dialogError = e.message;
                       });
+                    } on PermissionDeniedException catch (e) {
+                      setDialogState(() =>
+                          dialogError = 'Permission denied: ${e.permissionCode}');
                     } catch (e) {
                       setDialogState(() {
                         dialogError = 'Failed to save timetable slot: $e';

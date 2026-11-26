@@ -6,6 +6,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
@@ -55,7 +56,18 @@ class _LeaveContentState extends State<LeaveContent> {
   }
 
   Future<void> _updateStatus(LeaveRequest request, LeaveStatus newStatus) async {
-    await context.read<LeaveStore>().updateStatus(request.id, newStatus);
+    try {
+      await context.read<LeaveStore>().updateStatus(request.id, newStatus);
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
   }
 
   @override
@@ -81,10 +93,13 @@ class _LeaveContentState extends State<LeaveContent> {
                     ),
                   ),
                 ),
-                FilledButton.icon(
-                  onPressed: _showApplyDialog,
-                  icon: const Icon(Icons.add_rounded),
-                  label: const Text('Apply Leave'),
+                PermissionGuard(
+                  permission: PermissionCodes.leaveView,
+                  child: FilledButton.icon(
+                    onPressed: _showApplyDialog,
+                    icon: const Icon(Icons.add_rounded),
+                    label: const Text('Apply Leave'),
+                  ),
                 ),
               ],
             ),

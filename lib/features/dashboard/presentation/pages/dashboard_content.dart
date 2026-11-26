@@ -11,6 +11,7 @@ import 'package:attendance_app/core/models/attendance_record.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/models/notice.dart';
 import 'package:attendance_app/core/models/timetable_slot.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
@@ -655,19 +656,32 @@ class _DashboardContentState extends State<DashboardContent> {
     final user = authStore?.currentUser;
     final store = Provider.of<InstituteStore>(context, listen: false);
 
-    await noticeStore.addNotice(
-      instituteId: SupabaseConfig.instituteId.isNotEmpty
-          ? SupabaseConfig.instituteId
-          : AppConstants.defaultInstituteId,
-      title: result.title,
-      body: result.body,
-      publishedBy: user?.id ?? 'unknown',
-      publishedByName: user?.displayName,
-      targetRole: result.targetRole,
-      departmentId: result.departmentId,
-      attachmentUrl: result.attachmentUrl,
-      isPinned: result.isPinned,
-    );
+    try {
+      await noticeStore.addNotice(
+        instituteId: SupabaseConfig.instituteId.isNotEmpty
+            ? SupabaseConfig.instituteId
+            : AppConstants.defaultInstituteId,
+        title: result.title,
+        body: result.body,
+        publishedBy: user?.id ?? 'unknown',
+        publishedByName: user?.displayName,
+        targetRole: result.targetRole,
+        departmentId: result.departmentId,
+        attachmentUrl: result.attachmentUrl,
+        isPinned: result.isPinned,
+      );
+    } on PermissionDeniedException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -698,7 +712,20 @@ class _DashboardContentState extends State<DashboardContent> {
       updatedAt: DateTime.now().toUtc(),
     );
 
-    await noticeStore.updateNotice(updated);
+    try {
+      await noticeStore.updateNotice(updated);
+    } on PermissionDeniedException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -735,7 +762,20 @@ class _DashboardContentState extends State<DashboardContent> {
 
     if (confirmed != true || !mounted) return;
 
-    await noticeStore.deleteNotice(notice.id);
+    try {
+      await noticeStore.deleteNotice(notice.id);
+    } on PermissionDeniedException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+      return;
+    }
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -6,6 +6,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Comprehensive Reports page offering 4 distinct views:
@@ -184,14 +185,18 @@ class _ReportsContentState extends State<ReportsContent>
 
           // Tab Views
           Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _buildStudentReportTab(theme, colorScheme),
-                _buildSubjectReportTab(theme, colorScheme),
-                _buildClassReportTab(theme, colorScheme),
-                _buildTrendsTab(theme, colorScheme),
-              ],
+            child: PermissionGuard(
+              permission: PermissionCodes.reportView,
+              fallback: const SizedBox.shrink(),
+              child: TabBarView(
+                controller: _tabController,
+                children: [
+                  _buildStudentReportTab(theme, colorScheme),
+                  _buildSubjectReportTab(theme, colorScheme),
+                  _buildClassReportTab(theme, colorScheme),
+                  _buildTrendsTab(theme, colorScheme),
+                ],
+              ),
             ),
           ),
         ],

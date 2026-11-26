@@ -6,6 +6,7 @@ import 'package:attendance_app/core/models/role.dart';
 import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/role_repository.dart';
 import 'package:attendance_app/core/repositories/user_role_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
@@ -45,7 +46,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
   }
 
   bool _isUserAuthorized(RBACStore rbacStore) {
-    if (rbacStore.hasPermission('user.manage_roles')) {
+    if (rbacStore.hasPermission(PermissionCodes.userManageRoles)) {
       return true;
     }
     return rbacStore.hasPermission(PermissionCodes.userView) ||
@@ -53,7 +54,7 @@ class _UserManagementContentState extends State<UserManagementContent> {
   }
 
   bool _canManageRoles(RBACStore rbacStore) {
-    return rbacStore.hasPermission('user.manage_roles');
+    return rbacStore.hasPermission(PermissionCodes.userManageRoles);
   }
 
   List<User> _filteredUsers(List<User> users) {
@@ -386,6 +387,16 @@ class _UserManagementContentState extends State<UserManagementContent> {
                         isDefaultPassword: true,
                       );
                       if (ctx.mounted) Navigator.of(ctx).pop(true);
+                    } on PermissionDeniedException catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Permission denied: ${e.permissionCode}'),
+                            backgroundColor: Colors.red.shade700,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
@@ -721,6 +732,18 @@ class _UserManagementContentState extends State<UserManagementContent> {
                             await userStore.loadUsers();
 
                             if (ctx.mounted) Navigator.of(ctx).pop(true);
+                          } on PermissionDeniedException catch (e) {
+                            setDialogState(() => isSaving = false);
+                            if (ctx.mounted) {
+                              ScaffoldMessenger.of(ctx).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                      'Permission denied: ${e.permissionCode}'),
+                                  backgroundColor: Colors.red.shade700,
+                                  behavior: SnackBarBehavior.floating,
+                                ),
+                              );
+                            }
                           } catch (e) {
                             setDialogState(() => isSaving = false);
                             if (ctx.mounted) {
@@ -888,6 +911,16 @@ class _UserManagementContentState extends State<UserManagementContent> {
                         departmentIds: selectedDeptIds,
                       );
                       if (ctx.mounted) Navigator.of(ctx).pop(true);
+                    } on PermissionDeniedException catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                          SnackBar(
+                            content: Text('Permission denied: ${e.permissionCode}'),
+                            backgroundColor: Colors.red.shade700,
+                            behavior: SnackBarBehavior.floating,
+                          ),
+                        );
+                      }
                     } catch (e) {
                       if (ctx.mounted) {
                         ScaffoldMessenger.of(ctx).showSnackBar(
@@ -980,6 +1013,15 @@ class _UserManagementContentState extends State<UserManagementContent> {
                   : 'Account @${user.username} reactivated.',
             ),
             backgroundColor: isSuspending ? Colors.orange.shade800 : Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      } on PermissionDeniedException catch (e) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Colors.red.shade700,
             behavior: SnackBarBehavior.floating,
           ),
         );
@@ -1428,9 +1470,8 @@ class _UserManagementContentState extends State<UserManagementContent> {
                                           user,
                                         ),
                                       ),
-                                      // If staff (not student): assign department / class
-                                      if (user.role != UserRole.student)
-                                        IconButton(
+                                      // Assign department / class (staff or student)
+                                      IconButton(
                                           icon: const Icon(
                                               Icons.assignment_ind_rounded),
                                           tooltip:

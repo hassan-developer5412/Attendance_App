@@ -85,6 +85,16 @@ class _RoleManagementScreenState extends State<RoleManagementScreen> {
       if (auth.currentUser != null) {
         await rbac.loadForUser(auth.currentUser!.id);
       }
+    } on PermissionDeniedException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -6,6 +6,7 @@ import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/widgets/permission_guard.dart';
 
 /// Student roster with admin add, promote/move, and delete actions.
@@ -81,7 +82,19 @@ class _StudentsContentState extends State<StudentsContent> {
     );
 
     if (shouldDelete == true && mounted) {
-      await store.deleteStudent(student.id);
+      try {
+        await store.deleteStudent(student.id);
+      } on PermissionDeniedException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -110,17 +123,29 @@ class _StudentsContentState extends State<StudentsContent> {
 
     if (result == null || !mounted) return;
 
-    await store.addStudent(
-      name: result.name,
-      rollNumber: result.rollNumber,
-      classId: result.classId,
-      registrationNo: result.registrationNo,
-      fatherName: result.fatherName,
-      departmentId: result.departmentId,
-      academicSessionId: result.academicSessionId,
-      currentYear: result.currentYear,
-      status: result.status,
-    );
+    try {
+      await store.addStudent(
+        name: result.name,
+        rollNumber: result.rollNumber,
+        classId: result.classId,
+        registrationNo: result.registrationNo,
+        fatherName: result.fatherName,
+        departmentId: result.departmentId,
+        academicSessionId: result.academicSessionId,
+        currentYear: result.currentYear,
+        status: result.status,
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -142,13 +167,25 @@ class _StudentsContentState extends State<StudentsContent> {
 
     if (result == null || !mounted) return;
 
-    await store.promoteOrMoveStudent(
-      studentId: student.id,
-      newClassId: result.newClassId,
-      newYear: result.newYear,
-      newAcademicSessionId: result.newAcademicSessionId,
-      newDepartmentId: result.newDepartmentId,
-    );
+    try {
+      await store.promoteOrMoveStudent(
+        studentId: student.id,
+        newClassId: result.newClassId,
+        newYear: result.newYear,
+        newAcademicSessionId: result.newAcademicSessionId,
+        newDepartmentId: result.newDepartmentId,
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
 
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(

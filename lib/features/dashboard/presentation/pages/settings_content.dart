@@ -6,6 +6,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
@@ -70,7 +71,19 @@ class _SettingsContentState extends State<SettingsContent> {
       updatedAt: DateTime.now(),
     );
 
-    await store.addAcademicSession(session);
+    try {
+      await store.addAcademicSession(session);
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -88,17 +101,29 @@ class _SettingsContentState extends State<SettingsContent> {
 
     if (result == null || !mounted) return;
 
-    await store.addDepartment(
-      Department(
-        id: UuidUtils.generate(),
-        name: result.name,
-        code: result.code,
-        description: result.description,
-        isActive: result.isActive,
-        createdAt: DateTime.now(),
-        updatedAt: DateTime.now(),
-      ),
-    );
+    try {
+      await store.addDepartment(
+        Department(
+          id: UuidUtils.generate(),
+          name: result.name,
+          code: result.code,
+          description: result.description,
+          isActive: result.isActive,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        ),
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -116,17 +141,29 @@ class _SettingsContentState extends State<SettingsContent> {
 
     if (result == null || !mounted) return;
 
-    await store.updateDepartment(
-      Department(
-        id: result.id,
-        name: result.name,
-        code: result.code,
-        description: result.description,
-        isActive: result.isActive,
-        createdAt: department.createdAt,
-        updatedAt: DateTime.now(),
-      ),
-    );
+    try {
+      await store.updateDepartment(
+        Department(
+          id: result.id,
+          name: result.name,
+          code: result.code,
+          description: result.description,
+          isActive: result.isActive,
+          createdAt: department.createdAt,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -153,7 +190,19 @@ class _SettingsContentState extends State<SettingsContent> {
     );
 
     if (confirmed == true && mounted) {
-      await store.deleteDepartment(department.id);
+      try {
+        await store.deleteDepartment(department.id);
+      } on PermissionDeniedException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -172,17 +221,29 @@ class _SettingsContentState extends State<SettingsContent> {
 
     if (result == null || !mounted) return;
 
-    await store.updateAcademicSession(
-      AcademicSession(
-        id: result.id,
-        name: result.name,
-        startDate: result.startDate,
-        endDate: result.endDate,
-        isCurrent: result.isCurrent,
-        createdAt: session.createdAt,
-        updatedAt: DateTime.now(),
-      ),
-    );
+    try {
+      await store.updateAcademicSession(
+        AcademicSession(
+          id: result.id,
+          name: result.name,
+          startDate: result.startDate,
+          endDate: result.endDate,
+          isCurrent: result.isCurrent,
+          createdAt: session.createdAt,
+          updatedAt: DateTime.now(),
+        ),
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Permission denied: ${e.permissionCode}'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -209,7 +270,19 @@ class _SettingsContentState extends State<SettingsContent> {
     );
 
     if (confirmed == true && mounted) {
-      await store.deleteAcademicSession(session.id);
+      try {
+        await store.deleteAcademicSession(session.id);
+      } on PermissionDeniedException catch (e) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Permission denied: ${e.permissionCode}'),
+            backgroundColor: Theme.of(context).colorScheme.error,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
