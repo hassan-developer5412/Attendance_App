@@ -38,12 +38,77 @@ class LeaveRepository {
     _schemaEnsured = true;
   }
 
+  // -------------------------------------------------------------------------
+  // Access control helpers
+  // -------------------------------------------------------------------------
+
+  /// The id of the user making the request, resolved from [requestingUserId]
+  /// when given or [PermissionService.instance.currentUserId] otherwise.
+  ///
+  /// Returns null when no authenticated, non-suspended user is known —
+  /// callers must treat that as fail-closed.
+  String? _effectiveUserId({String? requestingUserId}) {
+    final uid = requestingUserId ?? PermissionService.instance.currentUserId;
+    if (uid == null || PermissionService.instance.isUserSuspended(uid)) {
+      return null;
+    }
+    return uid;
+  }
+
+  /// True when [request] belongs to [uid] (an own leave request).
+  bool _isOwner(LeaveRequest request, String uid) {
+    final studentId = request.studentId;
+    return studentId != null &&
+        studentId.isNotEmpty &&
+        studentId == uid;
+  }
+
+  /// True when [uid] may view or modify a request owned by someone else,
+  /// optionally scoped to [departmentId]. Holds `leave.view` or
+  /// `leave.approve` (department-scoped where applicable) is sufficient.
+  bool _mayAccessOthers(String uid, {String? departmentId}) {
+    return PermissionService.instance.hasPermission(
+            PermissionCodes.leaveView,
+            userId: uid,
+            departmentId: departmentId) ||
+        PermissionService.instance.hasPermission(
+            PermissionCodes.leaveApprove,
+            userId: uid,
+            departmentId: departmentId);
+  }
+
+  /// Throws [PermissionDeniedException] when [uid] is not the owner of
+  /// [request] and holds no `leave.view` / `leave.approve` grant (optionally
+  /// department-scoped).
+  void _requireOwnershipOrAccess(
+    LeaveRequest request,
+    String uid, {
+    String? departmentId,
+  }) {
+    if (_isOwner(request, uid)) return;
+    if (!_mayAccessOthers(uid, departmentId: departmentId)) {
+      throw PermissionDeniedException(
+        PermissionCodes.leaveView,
+        userId: uid,
+        departmentId: departmentId,
+      );
+    }
+  }
+
   Future<List<LeaveRequest>> getAll({
     String? studentId,
     bool includeDeleted = false,
+    String? requestingUserId,
+    String? departmentId,
   }) async {
     final db = await _dbHelper.database;
     await _ensureSchema(db);
+
+    final uid = _effectiveUserId(requestingUserId: requestingUserId);
+    if (uid == null) {
+      // Fail-closed: unauthenticated or suspended users see nothing.
+      return const <LeaveRequest>[];
+    }
 
     final whereClauses = <String>[];
     final whereArgs = <dynamic>[];
@@ -54,6 +119,24 @@ class LeaveRepository {
     if (studentId != null && studentId.isNotEmpty) {
       whereClauses.add('student_id = ?');
       whereArgs.add(studentId);
+    }
+
+    // A user may always list their own requests. Listing anyone else's
+    // requests (or all requests when no student filter is given) requires
+    // leave.view or leave.approve, honoring department scoping where
+    // applicable.
+    final isOwnRequest = studentId != null &&
+        studentId.isNotEmpty &&
+        studentId == uid;
+    if (!isOwnRequest && !_mayAccessOthers(uid, departmentId: departmentId)) {
+      if (studentId != null && studentId.isNotEmpty) {
+        throw PermissionDeniedException(
+          PermissionCodes.leaveView,
+          userId: uid,
+          departmentId: departmentId,
+        );
+      }
+      return const <LeaveRequest>[];
     }
 
     final rows = await db.query(
@@ -69,11 +152,24 @@ class LeaveRepository {
   Future<List<LeaveRequest>> getByStudentId(
     String studentId, {
     bool includeDeleted = false,
+    String? requestingUserId,
+    String? departmentId,
   }) =>
-      getAll(studentId: studentId, includeDeleted: includeDeleted);
+      getAll(
+        studentId: studentId,
+        includeDeleted: includeDeleted,
+        requestingUserId: requestingUserId,
+        departmentId: departmentId,
+      );
 
   /// Look up a leave request by its UUID primary key.
-  Future<LeaveRequest?> getById(String id) async {
+  ///
+  /// Owners may always read their own request; any other caller must hold
+  /// `leave.view` or `leave.approve` (department-scoped where applicable).
+  Future<LeaveRequest?> getById(String id, {
+    String? requestingUserId,
+    String? departmentId,
+  }) async {
     final db = await _dbHelper.database;
     await _ensureSchema(db);
     final rows = await db.query(
@@ -83,10 +179,42 @@ class LeaveRepository {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return LeaveRequest.fromMap(rows.first);
+    final request = LeaveRequest.fromMap(rows.first);
+
+    final uid = _effectiveUserId(requestingUserId: requestingUserId);
+    if (uid == null) return null; // Fail-closed: nothing to show.
+
+    _requireOwnershipOrAccess(request, uid, departmentId: departmentId);
+    return request;
   }
 
-  Future<LeaveRequest> insert(LeaveRequest request) async {
+  Future<LeaveRequest> insert(LeaveRequest request, {
+    String? requestingUserId,
+  }) async {
+    final uid = _effectiveUserId(requestingUserId: requestingUserId);
+    if (uid == null) {
+      // Fail-closed: submission requires an authenticated user. leave.view is
+      // the leave-module access gate; no administrative (leave.approve) grant
+      // is required to submit one's own request.
+      throw PermissionDeniedException(
+        PermissionCodes.leaveView,
+        userId: null,
+      );
+    }
+
+    // Users may submit their own requests without administrative permissions.
+    // Submitting on behalf of another user requires leave.view / leave.approve.
+    final requestStudentId = request.studentId;
+    if (requestStudentId != null &&
+        requestStudentId.isNotEmpty &&
+        requestStudentId != uid &&
+        !_mayAccessOthers(uid)) {
+      throw PermissionDeniedException(
+        PermissionCodes.leaveView,
+        userId: uid,
+      );
+    }
+
     final db = await _dbHelper.database;
     await _ensureSchema(db);
     final now = DateTime.now().toUtc().toIso8601String();
@@ -119,24 +247,36 @@ class LeaveRepository {
     String id,
     LeaveStatus newStatus, {
     String? remarks,
+    String? requestingUserId,
+    String? departmentId,
   }) async {
-    final currentUserId = PermissionService.instance.currentUserId;
+    final currentUserId = _effectiveUserId(requestingUserId: requestingUserId);
 
-    if (currentUserId != null &&
-        !PermissionService.instance.hasPermission(PermissionCodes.leaveApprove)) {
+    if (currentUserId == null ||
+        !PermissionService.instance.hasPermission(
+          PermissionCodes.leaveApprove,
+          userId: currentUserId,
+          departmentId: departmentId,
+        )) {
       throw PermissionDeniedException(
         PermissionCodes.leaveApprove,
         userId: currentUserId,
+        departmentId: departmentId,
       );
     }
 
     // Prevent users with leave.approve from approving their own requests.
-    final request = await getById(id);
-    if (currentUserId != null && request != null) {
+    final request = await getById(
+      id,
+      requestingUserId: currentUserId,
+      departmentId: departmentId,
+    );
+    if (request != null) {
       if (request.studentId != null && request.studentId == currentUserId) {
         throw PermissionDeniedException(
           PermissionCodes.leaveApprove,
           userId: currentUserId,
+          departmentId: departmentId,
         );
       }
     }
@@ -165,7 +305,28 @@ class LeaveRepository {
     );
   }
 
-  Future<void> softDelete(String id) async {
+  Future<void> softDelete(String id, {
+    String? requestingUserId,
+    String? departmentId,
+  }) async {
+    final uid = _effectiveUserId(requestingUserId: requestingUserId);
+    if (uid == null) {
+      throw PermissionDeniedException(
+        PermissionCodes.leaveView,
+        userId: null,
+        departmentId: departmentId,
+      );
+    }
+
+    // Deleting is a modification: owners may delete their own request; anyone
+    // else needs leave.view or leave.approve (department-scoped where applicable).
+    final request = await getById(
+      id,
+      requestingUserId: uid,
+      departmentId: departmentId,
+    );
+    if (request == null) return; // Nothing to delete.
+
     final db = await _dbHelper.database;
     await _ensureSchema(db);
     final now = DateTime.now().toUtc().toIso8601String();

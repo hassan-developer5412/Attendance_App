@@ -1,12 +1,29 @@
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_session.dart';
+import 'package:attendance_app/core/models/permission.dart';
+import 'package:attendance_app/core/repositories/attendance_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
+/// Local persistence for [AttendanceSession] rows with RBAC enforcement.
+///
+/// Session creation, updates (which also cover locking/unlocking session
+/// state), and deletion are guarded by the attendance permission codes in
+/// [PermissionCodes]. Teacher-assigned class/subject restrictions are
+/// preserved by delegating to
+/// [AttendanceRepository.ensureClassAndSubjectAuthorized], so a regular teacher
+/// can only manage sessions for classes and subjects they teach; institute-wide
+/// and department-wide attendance users are unrestricted.
 class AttendanceSessionRepository {
   AttendanceSessionRepository({DatabaseHelper? dbHelper})
-      : _dbHelper = dbHelper ?? DatabaseHelper.instance;
+      : _dbHelper = dbHelper ?? DatabaseHelper.instance,
+        _attendanceRepository = AttendanceRepository(
+          dbHelper: dbHelper ?? DatabaseHelper.instance,
+        );
 
   final DatabaseHelper _dbHelper;
+  /// Used for teacher class/subject authorization checks on session writes.
+  final AttendanceRepository _attendanceRepository;
 
   Future<List<AttendanceSession>> getAll({bool includeDeleted = false}) async {
     final db = await _dbHelper.database;
@@ -46,7 +63,35 @@ class AttendanceSessionRepository {
     return AttendanceSession.fromMap(rows.first);
   }
 
+  /// Requires [code] from the current user
+  /// ([PermissionService.instance.currentUserId]). Fail-closed: unauthenticated
+  /// or suspended users, and users missing the grant, are denied.
+  void _requirePermission(String code) {
+    final uid = PermissionService.instance.currentUserId;
+    if (!PermissionService.instance.hasPermission(code, userId: uid)) {
+      throw PermissionDeniedException(code, userId: uid);
+    }
+  }
+
+  /// Enforces teacher-assigned class/subject restrictions for [session].
+  /// No-op when the session carries no class/subject or the user holds
+  /// institute-wide / department-wide attendance authority.
+  Future<void> _ensureClassAndSubjectAuthorized(
+      AttendanceSession session) async {
+    final classId = session.classId;
+    final subjectId = session.subjectId;
+    if ((classId == null || classId.isEmpty) ||
+        (subjectId == null || subjectId.isEmpty)) {
+      return;
+    }
+    await _attendanceRepository
+        .ensureClassAndSubjectAuthorized(classId, subjectId);
+  }
+
   Future<AttendanceSession> insert(AttendanceSession session) async {
+    // Creating a session is part of marking attendance.
+    _requirePermission(PermissionCodes.attendanceMark);
+    await _ensureClassAndSubjectAuthorized(session);
     final db = await _dbHelper.database;
     await db.insert('attendance_sessions', session.toMap());
     SyncService.instance.schedulePush(
@@ -58,6 +103,10 @@ class AttendanceSessionRepository {
   }
 
   Future<void> update(AttendanceSession session) async {
+    // Updates include any session state change, e.g. locking or unlocking a
+    // session for further edits.
+    _requirePermission(PermissionCodes.attendanceEdit);
+    await _ensureClassAndSubjectAuthorized(session);
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
     final updated = session.copyWith(updatedAt: now);
@@ -75,6 +124,12 @@ class AttendanceSessionRepository {
   }
 
   Future<void> softDelete(String id) async {
+    _requirePermission(PermissionCodes.attendanceDelete);
+    // Preserve class/subject restrictions on the row being deleted.
+    final session = await getById(id);
+    if (session != null) {
+      await _ensureClassAndSubjectAuthorized(session);
+    }
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc().toIso8601String();
     await db.transaction((txn) async {

@@ -23,7 +23,7 @@ import 'package:attendance_app/features/parent_view/presentation/parent_view_con
 import 'package:attendance_app/features/student_view/presentation/student_self_view_content.dart';
 
 class _FakeAuthStore extends AuthStore {
-  _FakeAuthStore({User? user}) : _user = user;
+  _FakeAuthStore({this._user});
   final User? _user;
 
   @override

@@ -47,6 +47,18 @@ void main() {
       await sharedDb.delete('leave_requests');
       leaveRepo = LeaveRepository(dbHelper: dbHelper);
       PermissionService.instance.reset();
+      final staffRole = Role(
+        id: 'r_staff',
+        name: 'Staff',
+        code: 'staff',
+      );
+      PermissionService.instance.loadRoles([staffRole]);
+      PermissionService.instance.grantPermissionToRole(
+          staffRole.id, PermissionCodes.leaveView);
+      PermissionService.instance.grantPermissionToRole(
+          staffRole.id, PermissionCodes.leaveApprove);
+      PermissionService.instance.assignRoleToUser('staff_user', staffRole.id);
+      PermissionService.instance.currentUserId = 'staff_user';
     });
 
     tearDown(() async {
@@ -412,6 +424,8 @@ class _MockLeaveRepo extends LeaveRepository {
   Future<List<LeaveRequest>> getAll({
     String? studentId,
     bool includeDeleted = false,
+    String? requestingUserId,
+    String? departmentId,
   }) async {
     if (studentId != null && studentId.isNotEmpty) {
       return items.where((r) => r.studentId == studentId).toList();
@@ -420,7 +434,9 @@ class _MockLeaveRepo extends LeaveRepository {
   }
 
   @override
-  Future<LeaveRequest> insert(LeaveRequest request) async {
+  Future<LeaveRequest> insert(LeaveRequest request, {
+    String? requestingUserId,
+  }) async {
     items.insert(0, request);
     return request;
   }
@@ -430,6 +446,8 @@ class _MockLeaveRepo extends LeaveRepository {
     String id,
     LeaveStatus newStatus, {
     String? remarks,
+    String? requestingUserId,
+    String? departmentId,
   }) async {
     final idx = items.indexWhere((r) => r.id == id);
     if (idx >= 0) {

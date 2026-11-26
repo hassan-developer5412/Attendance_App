@@ -15,13 +15,17 @@ class _FakeLeaveRepo extends LeaveRepository {
   Future<List<LeaveRequest>> getAll({
     String? studentId,
     bool includeDeleted = false,
+    String? requestingUserId,
+    String? departmentId,
   }) async =>
       studentId != null
           ? items.where((r) => r.studentId == studentId).toList()
           : List.from(items);
 
   @override
-  Future<LeaveRequest> insert(LeaveRequest request) async {
+  Future<LeaveRequest> insert(LeaveRequest request, {
+    String? requestingUserId,
+  }) async {
     items.insert(0, request);
     return request;
   }
@@ -31,6 +35,8 @@ class _FakeLeaveRepo extends LeaveRepository {
     String id,
     LeaveStatus newStatus, {
     String? remarks,
+    String? requestingUserId,
+    String? departmentId,
   }) async {
     final idx = items.indexWhere((r) => r.id == id);
     if (idx >= 0) {
