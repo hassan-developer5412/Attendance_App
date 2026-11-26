@@ -141,6 +141,38 @@ class PermissionService {
     _userDepartments.clear();
     _suspendedUserIds.clear();
     currentUserId = null;
+    _syncBypassActive = false;
+  }
+
+  // -----------------------------------------------------------------------
+  // Sync bypass (SyncService only)
+  // -----------------------------------------------------------------------
+
+  /// `true` only while [SyncService] is applying a remote RBAC pull inside
+  /// [withSyncBypass]. While set, RBAC write guards ([canManageRoles]) do not
+  /// reject the sync writer: Supabase is the source of truth for RBAC data,
+  /// so a teacher/student device may still persist remotely-pulled roles,
+  /// permissions and assignments even though the logged-in device user
+  /// lacks admin write permissions.
+  ///
+  /// Normal app code cannot lower the write guards through this API, and the
+  /// flag is always reset in a `finally` block, so ordinary writes remain
+  /// strictly fail-closed.
+  bool _syncBypassActive = false;
+
+  /// Whether a sync-bypass run is currently in progress (read-only).
+  bool get isSyncBypassActive => _syncBypassActive;
+
+  /// Runs [action] with the sync-bypass flag held and **always** resets it in
+  /// a `finally` block, even if [action] throws. Only [SyncService] may call
+  /// this, and only while pulling/upserting remote RBAC tables.
+  Future<T> withSyncBypass<T>(Future<T> Function() action) async {
+    _syncBypassActive = true;
+    try {
+      return await action();
+    } finally {
+      _syncBypassActive = false;
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -310,6 +342,13 @@ class PermissionService {
   bool canManageRoles({String? userId}) {
     final uid = userId ?? currentUserId;
     if (uid == null || isUserSuspended(uid)) return false;
+
+    // Trusted sync writer: remote RBAC pulls are persisted even when the
+    // logged-in device user is a teacher or student without admin write
+    // permissions — Supabase is the source of truth for RBAC data. Outside of
+    // a sync cycle [_syncBypassActive] is false and the fail-closed evaluation
+    // below applies.
+    if (_syncBypassActive) return true;
 
     final roleIds = _userRoles[uid];
     if (roleIds == null || roleIds.isEmpty) return false;

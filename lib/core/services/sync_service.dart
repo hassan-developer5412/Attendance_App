@@ -18,6 +18,7 @@ import 'package:attendance_app/core/models/timetable_slot.dart';
 import 'package:attendance_app/core/models/sync_queue_item.dart';
 import 'package:attendance_app/core/models/user.dart';
 import 'package:attendance_app/core/repositories/sync_queue_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
 
 /// Lifecycle state of the sync engine.
@@ -782,11 +783,36 @@ class SyncService with ChangeNotifier {
     'timetable_slots',
   ];
 
+  /// RBAC tables replicated from Supabase, pulled alongside the institute
+  /// tables. Their local upserts/deletes run inside
+  /// [PermissionService.withSyncBypass] so the sync writer is not blocked by
+  /// the logged-in device user's (lack of) admin write grants — Supabase is
+  /// the source of truth for RBAC data.
+  static final Set<String> _rbacTables = <String>{
+    'roles',
+    'permissions',
+    'role_permissions',
+    'user_roles',
+    'user_departments',
+  };
+
   /// Pulls incremental changes from Supabase into SQLite for every table in
   /// [_pullOrder]. Per-table `last_synced_at` timestamps are tracked in
   /// SharedPreferences so only rows with `updated_at` newer than the last sync
   /// are fetched. Local rows whose `sync_status == 'PENDING'` are never
   /// overwritten — they are left alone until `drainQueue()` pushes them.
+  /// Remote rows with `is_deleted == true` are removed from the local cache
+  /// (soft-deletes are replicated as deletions) unless the matching local row
+  /// has unsynced pending changes, in which case the local row wins.
+  ///
+  /// RBAC tables (`roles`, `permissions`, `role_permissions`, `user_roles`,
+  /// `user_departments`) are pulled alongside the institute tables. Their
+  /// local writes run inside [PermissionService.withSyncBypass] so remote
+  /// admin changes can be persisted even when the logged-in device user is a
+  /// teacher or student without admin write permissions. When the pull
+  /// completes, [onPullCompleted] fires so stores (e.g. [RBACStore] via
+  /// `rbacStore.refresh()`) reload from SQLite and newly granted or revoked
+  /// roles/permissions take effect immediately without a logout.
   Future<void> pullAll() async {
     if (!_enabled) {
       _log('pullAll SKIPPED: SupabaseConfig.isReady is FALSE');
@@ -798,47 +824,77 @@ class SyncService with ChangeNotifier {
 
     for (final table in _pullOrder) {
       try {
-        final lastSynced = prefs.getString('last_synced_at_$table');
-        var builder = Supabase.instance.client.from(table).select('*');
-        if (lastSynced != null && lastSynced.isNotEmpty) {
-          builder = builder.gt('updated_at', lastSynced);
-        }
-        final rows = await builder;
-        _log('pullAll: fetched ${rows.length} row(s) from "$table" '
-            '(last_synced_at=$lastSynced)');
+        Future<void> pullTable() async {
+          final lastSynced = prefs.getString('last_synced_at_$table');
+          var builder = Supabase.instance.client.from(table).select('*');
+          if (lastSynced != null && lastSynced.isNotEmpty) {
+            builder = builder.gt('updated_at', lastSynced);
+          }
+          final rows = await builder;
+          _log('pullAll: fetched ${rows.length} row(s) from "$table" '
+              '(last_synced_at=$lastSynced)');
 
-        for (final remoteRow in rows) {
-          final normalized = await normalizeRemoteRowForSqlite(
-            db,
-            table,
-            Map<String, dynamic>.from(remoteRow),
-          );
+          for (final remoteRow in rows) {
+            final isDeleted = (remoteRow['is_deleted'] as bool?) == true;
 
-          // normalizeRemoteRowForSqlite returns null when a required NOT NULL
-          // column (e.g. role_permissions.permission_code) cannot be resolved.
-          if (normalized == null) {
-            final id = remoteRow['id']?.toString() ?? '<no-id>';
-            _log('pullAll SKIP $table/$id: normalized row is null (missing required column)');
-            continue;
+            // A remote soft-delete is replicated locally as a deletion so
+            // revoked access (e.g. a revoked role assignment) no longer
+            // applies on this device. A locally-modified row that is still
+            // pending push wins and is left alone until its push completes.
+            if (isDeleted) {
+              if (await localRowIsPending(db, table, remoteRow)) {
+                final id = remoteRow['id']?.toString() ?? '<no-id>';
+                _log('pullAll SKIP $table/$id: local sync_status is PENDING');
+                continue;
+              }
+              await _deleteLocalRow(db, table, remoteRow);
+              continue;
+            }
+
+            final normalized = await normalizeRemoteRowForSqlite(
+              db,
+              table,
+              Map<String, dynamic>.from(remoteRow),
+            );
+
+            // normalizeRemoteRowForSqlite returns null when a required NOT NULL
+            // column (e.g. role_permissions.permission_code) cannot be resolved.
+            if (normalized == null) {
+              final id = remoteRow['id']?.toString() ?? '<no-id>';
+              _log('pullAll SKIP $table/$id: normalized row is null (missing required column)');
+              continue;
+            }
+
+            // Never clobber a locally-modified row that is still pending push.
+            final row = normalized;
+            if (await localRowIsPending(db, table, row)) {
+              final id = row['id']?.toString() ?? '<no-id>';
+              _log('pullAll SKIP $table/$id: local sync_status is PENDING');
+              continue;
+            }
+
+            await db.insert(
+              table,
+              row,
+              conflictAlgorithm: ConflictAlgorithm.replace,
+            );
           }
 
-          // Never clobber a locally-modified row that is still pending push.
-          final row = normalized;
-          if (await localRowIsPending(db, table, row)) {
-            final id = row['id']?.toString() ?? '<no-id>';
-            _log('pullAll SKIP $table/$id: local sync_status is PENDING');
-            continue;
-          }
-
-          await db.insert(
-            table,
-            row,
-            conflictAlgorithm: ConflictAlgorithm.replace,
-          );
+          // Advance the watermark only after this table's rows are applied.
+          await prefs.setString('last_synced_at_$table', now);
         }
 
-        // Advance the watermark only after this table's rows are applied.
-        await prefs.setString('last_synced_at_$table', now);
+        if (_rbacTables.contains(table)) {
+          // RBAC data is written with the sync bypass held: Supabase is the
+          // source of truth, so remotely-pulled role/permission/assignment
+          // rows are persisted even when the logged-in device user is a
+          // teacher or student without admin write permissions. The bypass
+          // flag is always reset in a `finally` block, so normal app writes
+          // remain strictly fail-closed.
+          await PermissionService.instance.withSyncBypass(pullTable);
+        } else {
+          await pullTable();
+        }
       } catch (e, s) {
         _logError('pullAll failed for table "$table"', e, s);
       }
@@ -848,7 +904,9 @@ class SyncService with ChangeNotifier {
     _setLastSynced(DateTime.now());
 
     // Notify stores so they can reload from SQLite now that Supabase data has
-    // been written into the local cache.
+    // been written into the local cache. RBAC tables are included in
+    // [_pullOrder], so the store reload (e.g. rbacStore.refresh() in main.dart)
+    // picks up newly granted or revoked roles/permissions immediately.
     if (onPullCompleted != null) {
       try {
         await onPullCompleted!();
@@ -979,6 +1037,67 @@ class SyncService with ChangeNotifier {
     );
     if (existing.isEmpty) return false;
     return existing.first['sync_status'] == 'PENDING';
+  }
+
+  /// Deletes the local row(s) matching [remoteRow] for [table] when Supabase
+  /// soft-deletes the row (`is_deleted == true`). Composite-key join tables
+  /// are matched on their natural keys; all other tables on `id`. Returns the
+  /// number of rows deleted.
+  Future<int> _deleteLocalRow(
+    Database db,
+    String table,
+    Map<String, dynamic> remoteRow,
+  ) async {
+    int deleted;
+    if (table == 'role_permissions') {
+      final roleId = remoteRow['role_id'];
+      final permissionId = remoteRow['permission_id'];
+      if (roleId == null || permissionId == null) {
+        _log('pullAll DELETE $table: cannot identify row (missing role_id/permission_id)');
+        return 0;
+      }
+      deleted = await db.delete(
+        table,
+        where:
+            'role_id = ? AND permission_code IN (SELECT code FROM permissions WHERE id = ?)',
+        whereArgs: <Object?>[roleId, permissionId],
+      );
+    } else if (table == 'user_roles') {
+      final userId = remoteRow['user_id'];
+      final roleId = remoteRow['role_id'];
+      if (userId == null || roleId == null) {
+        _log('pullAll DELETE $table: cannot identify row (missing user_id/role_id)');
+        return 0;
+      }
+      deleted = await db.delete(
+        table,
+        where: 'user_id = ? AND role_id = ?',
+        whereArgs: <Object?>[userId, roleId],
+      );
+    } else if (table == 'user_departments') {
+      final userId = remoteRow['user_id'];
+      final departmentId = remoteRow['department_id'];
+      if (userId == null || departmentId == null) {
+        _log('pullAll DELETE $table: cannot identify row (missing user_id/department_id)');
+        return 0;
+      }
+      deleted = await db.delete(
+        table,
+        where: 'user_id = ? AND department_id = ?',
+        whereArgs: <Object?>[userId, departmentId],
+      );
+    } else {
+      final id = remoteRow['id'];
+      if (id == null) {
+        _log('pullAll DELETE $table: cannot identify row (missing id)');
+        return 0;
+      }
+      deleted = await db.delete(table, where: 'id = ?', whereArgs: <Object?>[id]);
+    }
+    if (deleted > 0) {
+      _log('pullAll: replicated soft-delete locally for $table ($deleted row(s) removed)');
+    }
+    return deleted;
   }
 }
 
