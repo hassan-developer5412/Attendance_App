@@ -83,6 +83,17 @@ class LeaveStore extends ChangeNotifier {
     return List.unmodifiable(_requests.where((r) => !r.isDeleted).toList());
   }
 
+  /// Non-deleted leave requests scoped to a specific [studentId].
+  ///
+  /// Used by the student and parent self-service portals, which are scoped to
+  /// their own or linked child's records rather than a staff department.
+  List<LeaveRequest> requestsForStudent(String studentId) {
+    if (studentId.isEmpty) return const <LeaveRequest>[];
+    return List.unmodifiable(
+      _requests.where((r) => !r.isDeleted && r.studentId == studentId),
+    );
+  }
+
   int get pendingCount =>
       _requests.where((r) => r.status == LeaveStatus.pending).length;
 

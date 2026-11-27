@@ -148,6 +148,127 @@ class AttendanceRepository {
   }
 
   // -------------------------------------------------------------------------
+  // RBAC & department-scoping helpers
+  // -------------------------------------------------------------------------
+
+  /// Resolves the target department ID from [departmentId], [sessionId],
+  /// [studentId], or [classId]. Returns `null` when no department is linked.
+  Future<String?> _resolveDepartmentId(
+    dynamic db, {
+    String? departmentId,
+    String? sessionId,
+    String? studentId,
+    String? classId,
+  }) async {
+    if (departmentId != null && departmentId.isNotEmpty) {
+      return departmentId;
+    }
+
+    String? resolvedClassId = classId;
+
+    if (sessionId != null && sessionId.isNotEmpty) {
+      final sessionRows = await db.query(
+        'attendance_sessions',
+        columns: ['department_id', 'class_id'],
+        where: 'id = ? AND is_deleted = 0',
+        whereArgs: [sessionId],
+        limit: 1,
+      );
+      if (sessionRows.isNotEmpty) {
+        final sessDept = sessionRows.first['department_id'] as String?;
+        if (sessDept != null && sessDept.isNotEmpty) return sessDept;
+        final sessClass = sessionRows.first['class_id'] as String?;
+        if (sessClass != null && sessClass.isNotEmpty) {
+          resolvedClassId ??= sessClass;
+        }
+      }
+    }
+
+    if (studentId != null && studentId.isNotEmpty) {
+      final studentRows = await db.query(
+        'students',
+        columns: ['department_id', 'class_id'],
+        where: 'id = ? AND is_deleted = 0',
+        whereArgs: [studentId],
+        limit: 1,
+      );
+      if (studentRows.isNotEmpty) {
+        final stuDept = studentRows.first['department_id'] as String?;
+        if (stuDept != null && stuDept.isNotEmpty) return stuDept;
+        final stuClass = studentRows.first['class_id'] as String?;
+        if (stuClass != null && stuClass.isNotEmpty) {
+          resolvedClassId ??= stuClass;
+        }
+      }
+    }
+
+    if (resolvedClassId != null && resolvedClassId.isNotEmpty) {
+      final classRows = await db.query(
+        'classes',
+        columns: ['department_id'],
+        where: 'id = ? AND is_deleted = 0',
+        whereArgs: [resolvedClassId],
+        limit: 1,
+      );
+      if (classRows.isNotEmpty) {
+        final classDept = classRows.first['department_id'] as String?;
+        if (classDept != null && classDept.isNotEmpty) return classDept;
+      }
+    }
+
+    return null;
+  }
+
+  /// Enforces attendance write permission ([PermissionCodes.attendanceMark] for
+  /// new records, [PermissionCodes.attendanceEdit] or
+  /// [PermissionCodes.attendanceMark] for updates) and department-level scope.
+  ///
+  /// Fail-closed: throws [PermissionDeniedException] when unauthenticated,
+  /// suspended, missing the permission, or outside the user's department(s).
+  void _requireAttendanceWritePermission({
+    required bool isUpdate,
+    String? departmentId,
+  }) {
+    final uid = PermissionService.instance.currentUserId;
+    final primaryCode = isUpdate
+        ? PermissionCodes.attendanceEdit
+        : PermissionCodes.attendanceMark;
+
+    if (uid == null || PermissionService.instance.isUserSuspended(uid)) {
+      throw PermissionDeniedException(
+        primaryCode,
+        userId: uid,
+        departmentId: departmentId,
+      );
+    }
+
+    if (isUpdate) {
+      if (!PermissionService.instance.hasPermission(
+        PermissionCodes.attendanceMark,
+        departmentId: departmentId,
+      )) {
+        PermissionService.instance.requirePermission(
+          PermissionCodes.attendanceEdit,
+          departmentId: departmentId,
+        );
+      }
+    } else {
+      PermissionService.instance.requirePermission(
+        PermissionCodes.attendanceMark,
+        departmentId: departmentId,
+      );
+    }
+
+    if (!PermissionService.instance.canAccessDepartment(departmentId)) {
+      throw PermissionDeniedException(
+        primaryCode,
+        userId: uid,
+        departmentId: departmentId,
+      );
+    }
+  }
+
+  // -------------------------------------------------------------------------
   // Upsert methods
   // -------------------------------------------------------------------------
   Future<void> upsertAttendanceForSession({
@@ -157,9 +278,26 @@ class AttendanceRepository {
     DateTime? checkInTime,
     bool isOverride = false,
   }) async {
+    final db = await _dbHelper.database;
+    final existing = await db.query(
+      'attendance_records',
+      where: 'session_id = ? AND student_id = ?',
+      whereArgs: [sessionId, studentId],
+      limit: 1,
+    );
+
+    final departmentId = await _resolveDepartmentId(
+      db,
+      sessionId: sessionId,
+      studentId: studentId,
+    );
+    _requireAttendanceWritePermission(
+      isUpdate: existing.isNotEmpty,
+      departmentId: departmentId,
+    );
+
     // Authorize class/subject access for non-institute-wide / non-department-wide users.
     // Resolve classId/subjectId from the session.
-    final db = await _dbHelper.database;
     final sessionRows = await db.query(
       'attendance_sessions',
       where: 'id = ? AND is_deleted = 0',
@@ -174,12 +312,6 @@ class AttendanceRepository {
       }
     }
 
-    final existing = await db.query(
-      'attendance_records',
-      where: 'session_id = ? AND student_id = ?',
-      whereArgs: [sessionId, studentId],
-      limit: 1,
-    );
     final now = DateTime.now().toUtc().toIso8601String();
     if (existing.isNotEmpty) {
       await db.update(
@@ -229,6 +361,16 @@ class AttendanceRepository {
       whereArgs: [studentId, dateStr],
       limit: 1,
     );
+
+    final departmentId = await _resolveDepartmentId(
+      db,
+      studentId: studentId,
+    );
+    _requireAttendanceWritePermission(
+      isUpdate: existing.isNotEmpty,
+      departmentId: departmentId,
+    );
+
     final now = DateTime.now().toUtc().toIso8601String();
     if (existing.isNotEmpty) {
       await db.update(
@@ -321,10 +463,20 @@ class AttendanceRepository {
     String? teacherId,
     String remarks = '',
   }) async {
+    final db = await _dbHelper.database;
+    final resolvedDeptId = await _resolveDepartmentId(
+      db,
+      departmentId: departmentId,
+      classId: classId,
+    );
+    _requireAttendanceWritePermission(
+      isUpdate: false,
+      departmentId: resolvedDeptId,
+    );
+
     // Authorize class/subject access for non-institute-wide / non-department-wide users.
     await ensureClassAndSubjectAuthorized(classId, subjectId);
 
-    final db = await _dbHelper.database;
     final dateStr = AppDateUtils.dateKey(date);
     final sessionId = sessionIdFor(
       academicSessionId: academicSessionId,

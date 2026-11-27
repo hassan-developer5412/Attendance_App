@@ -5,20 +5,23 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
-import 'package:attendance_app/core/models/notice.dart';
 import 'package:attendance_app/core/repositories/attendance_repository.dart';
 import 'package:attendance_app/core/repositories/leave_repository.dart';
 import 'package:attendance_app/core/repositories/student_repository.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/leave_store.dart';
 import 'package:attendance_app/core/state/notice_store.dart';
+import 'package:attendance_app/core/state/timetable_store.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
+import 'package:attendance_app/features/student_view/presentation/widgets/portal_shared_widgets.dart';
 
 /// Self-Service portal for students.
 ///
@@ -100,6 +103,8 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
       AuthStore? authStore;
       InstituteStore? instituteStore;
       AttendanceStore? attendanceStore;
+      TimetableStore? timetableStore;
+      NoticeStore? noticeStore;
 
       try {
         authStore = Provider.of<AuthStore>(context, listen: false);
@@ -109,6 +114,12 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
       } catch (_) {}
       try {
         attendanceStore = Provider.of<AttendanceStore>(context, listen: false);
+      } catch (_) {}
+      try {
+        timetableStore = Provider.of<TimetableStore>(context, listen: false);
+      } catch (_) {}
+      try {
+        noticeStore = Provider.of<NoticeStore>(context, listen: false);
       } catch (_) {}
 
       final user = authStore?.currentUser;
@@ -123,6 +134,11 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
                 onTimeout: () => null,
               );
         } catch (_) {}
+        if (student == null && instituteStore != null) {
+          student = instituteStore.students
+              .where((s) => s.id == widget.studentId)
+              .firstOrNull;
+        }
       }
 
       if (student == null && user != null) {
@@ -154,7 +170,7 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
       }
 
       _student = student;
-      _resolvedStudentId = student?.id ?? widget.studentId ?? user?.id ?? 'student_id';
+      _resolvedStudentId = student?.id ?? widget.studentId ?? user?.id ?? '';
       _resolvedStudentName = student?.name ?? user?.displayName ?? 'Student';
 
       // 2. Resolve Class and Subjects
@@ -168,6 +184,28 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
         if (_enrolledSubjects.isEmpty) {
           _enrolledSubjects = instituteStore.subjectsForClass(student.classId);
         }
+      } else {
+        _studentClass = null;
+        _department = null;
+        _enrolledSubjects = [];
+      }
+
+      // 3. Ensure TimetableStore & NoticeStore are initialized if empty
+      if (timetableStore != null && timetableStore.slots.isEmpty) {
+        try {
+          await timetableStore.init().timeout(
+                const Duration(milliseconds: 500),
+                onTimeout: () {},
+              );
+        } catch (_) {}
+      }
+      if (noticeStore != null && noticeStore.notices.isEmpty) {
+        try {
+          await noticeStore.init().timeout(
+                const Duration(milliseconds: 500),
+                onTimeout: () {},
+              );
+        } catch (_) {}
       }
 
       // 3. Resolve Attendance Logs
@@ -348,220 +386,129 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildScheduleTab(theme, colorScheme),
-                _buildAttendanceTab(theme, colorScheme),
-                _buildLeavesTab(theme, colorScheme),
-                _buildNoticesTab(theme, colorScheme),
+                guardPortalSection(
+                  context,
+                  permission: PermissionCodes.timetableView,
+                  sectionName: 'Schedule & Timetable',
+                  child: _buildScheduleTab(theme, colorScheme),
+                ),
+                guardPortalSection(
+                  context,
+                  permission: PermissionCodes.attendanceView,
+                  sectionName: 'Attendance',
+                  child: PortalAttendanceView(
+                    logs: _detailedAttendanceLogs,
+                    isLinked: _student != null || _detailedAttendanceLogs.isNotEmpty,
+                    unlinkedMessage:
+                        'Your account is not linked to a student record yet. '
+                        'Attendance records will appear once linked or synced.',
+                    onRefresh: _loadAllData,
+                  ),
+                ),
+                guardPortalSection(
+                  context,
+                  permission: PermissionCodes.leaveView,
+                  sectionName: 'Leave Applications',
+                  child: _buildLeavesTab(theme, colorScheme),
+                ),
+                guardPortalSection(
+                  context,
+                  permission: PermissionCodes.noticeView,
+                  sectionName: 'Notices',
+                  child: PortalNoticesView(
+                    audienceRole: PermissionService.instance
+                            .hasPermission(PermissionCodes.noticeManage)
+                        ? null
+                        : 'student',
+                    departmentId: _department?.id ?? _student?.departmentId,
+                    onRefresh: _loadAllData,
+                  ),
+                ),
               ],
             ),
     );
   }
 
   // ---------------------------------------------------------------------------
-  // Tab 0: Class Schedule
+  // Tab 0: Class Schedule & Weekly Timetable
   // ---------------------------------------------------------------------------
   Widget _buildScheduleTab(ThemeData theme, ColorScheme colorScheme) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildStudentInfoCard(theme, colorScheme),
-          const SizedBox(height: 20),
-          Text(
-            'Enrolled Subjects & Classes',
-            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          if (_enrolledSubjects.isEmpty)
-            Card(
-              elevation: 0,
-              color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: colorScheme.outlineVariant),
-              ),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Center(
-                  child: Text(
-                    'No enrolled subjects found for this session.',
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ),
-              ),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _enrolledSubjects.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (ctx, index) {
-                final sub = _enrolledSubjects[index];
-                return Card(
-                  margin: EdgeInsets.zero,
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: colorScheme.primaryContainer,
-                      child: Text(
-                        sub.code.isNotEmpty ? sub.code[0] : 'S',
-                        style: TextStyle(
-                          color: colorScheme.onPrimaryContainer,
-                          fontWeight: FontWeight.bold,
+    return RefreshIndicator(
+      onRefresh: _loadAllData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            PortalStudentInfoCard(
+              displayName: _resolvedStudentName,
+              student: _student,
+              studentClass: _studentClass,
+              department: _department,
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Weekly Class & Lab Timetable',
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            PortalWeeklyTimetableSection(
+              classId: _student?.classId,
+              isLinked: _student != null,
+              unlinkedMessage:
+                  'Your account is not linked to a class yet. '
+                  'Your weekly timetable will appear once linked.',
+            ),
+            const SizedBox(height: 20),
+            Text(
+              'Enrolled Subjects & Classes',
+              style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            if (_enrolledSubjects.isEmpty)
+              const PortalEmptyStateCard(
+                icon: Icons.menu_book_outlined,
+                title: 'No Enrolled Subjects',
+                message: 'No enrolled subjects found for this session.',
+              )
+            else
+              ListView.separated(
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                itemCount: _enrolledSubjects.length,
+                separatorBuilder: (_, _) => const SizedBox(height: 8),
+                itemBuilder: (ctx, index) {
+                  final sub = _enrolledSubjects[index];
+                  return Card(
+                    margin: EdgeInsets.zero,
+                    child: ListTile(
+                      leading: CircleAvatar(
+                        backgroundColor: colorScheme.primaryContainer,
+                        child: Text(
+                          sub.code.isNotEmpty ? sub.code[0] : 'S',
+                          style: TextStyle(
+                            color: colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
                       ),
-                    ),
-                    title: Text(
-                      sub.name,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: Text('${sub.code} • ${sub.subjectType.label}'),
-                    trailing: Chip(
-                      label: Text(sub.year.isNotEmpty ? sub.year : 'General'),
-                      visualDensity: VisualDensity.compact,
-                    ),
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Tab 1: Attendance History
-  // ---------------------------------------------------------------------------
-  Widget _buildAttendanceTab(ThemeData theme, ColorScheme colorScheme) {
-    final presentCount = _detailedAttendanceLogs
-        .where((l) => (l['status'] as String?)?.toLowerCase() == 'present')
-        .length;
-    final lateCount = _detailedAttendanceLogs
-        .where((l) => (l['status'] as String?)?.toLowerCase() == 'late')
-        .length;
-    final absentCount = _detailedAttendanceLogs
-        .where((l) => (l['status'] as String?)?.toLowerCase() == 'absent')
-        .length;
-    final leaveCount = _detailedAttendanceLogs
-        .where((l) => (l['status'] as String?)?.toLowerCase() == 'leave')
-        .length;
-    final total = _detailedAttendanceLogs.length;
-    final rate = total > 0 ? ((presentCount + lateCount) / total * 100).toStringAsFixed(1) : '100.0';
-
-    return SingleChildScrollView(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Overall Attendance',
-                        style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
+                      title: Text(
+                        sub.name,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                      Text(
-                        '$rate%',
-                        style: theme.textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: double.tryParse(rate)! >= 75 ? Colors.green : Colors.red,
-                        ),
+                      subtitle: Text('${sub.code} • ${sub.subjectType.label}'),
+                      trailing: Chip(
+                        label: Text(sub.year.isNotEmpty ? sub.year : 'General'),
+                        visualDensity: VisualDensity.compact,
                       ),
-                    ],
-                  ),
-                  const Divider(height: 24),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceAround,
-                    children: [
-                      _attendanceStatItem('Present', presentCount, Colors.green),
-                      _attendanceStatItem('Late', lateCount, Colors.orange),
-                      _attendanceStatItem('Absent', absentCount, Colors.red),
-                      _attendanceStatItem('Leave', leaveCount, Colors.blue),
-                    ],
-                  ),
-                ],
+                    ),
+                  );
+                },
               ),
-            ),
-          ),
-          const SizedBox(height: 20),
-          Text(
-            'Attendance History',
-            style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 12),
-          if (_detailedAttendanceLogs.isEmpty)
-            Center(
-              child: Padding(
-                padding: const EdgeInsets.all(32),
-                child: Text(
-                  'No attendance records found yet.',
-                  style: TextStyle(color: colorScheme.onSurfaceVariant),
-                ),
-              ),
-            )
-          else
-            ListView.separated(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: _detailedAttendanceLogs.length,
-              separatorBuilder: (_, _) => const SizedBox(height: 8),
-              itemBuilder: (ctx, idx) {
-                final row = _detailedAttendanceLogs[idx];
-                final statusStr = (row['status'] as String? ?? 'present').toUpperCase();
-                final date = row['session_date'] ?? row['date'] ?? '';
-                final subject = row['subject_name'] ?? 'Class Session';
-                Color statusColor = Colors.green;
-                if (statusStr == 'LATE') statusColor = Colors.orange;
-                if (statusStr == 'ABSENT') statusColor = Colors.red;
-                if (statusStr == 'LEAVE') statusColor = Colors.blue;
-
-                return Card(
-                  margin: EdgeInsets.zero,
-                  child: ListTile(
-                    leading: CircleAvatar(
-                      backgroundColor: statusColor.withValues(alpha: 0.15),
-                      child: Icon(Icons.event, color: statusColor, size: 20),
-                    ),
-                    title: Text(subject, style: const TextStyle(fontWeight: FontWeight.w600)),
-                    subtitle: Text('Date: $date'),
-                    trailing: Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: statusColor.withValues(alpha: 0.15),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: Text(
-                        statusStr,
-                        style: TextStyle(color: statusColor, fontWeight: FontWeight.bold, fontSize: 12),
-                      ),
-                    ),
-                  ),
-                );
-              },
-            ),
-        ],
-      ),
-    );
-  }
-
-  Widget _attendanceStatItem(String label, int count, Color color) {
-    return Column(
-      children: [
-        Text(
-          '$count',
-          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: color),
+          ],
         ),
-        const SizedBox(height: 4),
-        Text(label, style: const TextStyle(fontSize: 12)),
-      ],
+      ),
     );
   }
 
@@ -576,14 +523,9 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
       leaveStore = null;
     }
 
-    final allItems = leaveStore?.requests ?? [];
-    // Ensure records are filtered to the logged-in student's records
-    final studentLeaves = allItems.where((r) {
-      if (r.studentId != null && r.studentId!.isNotEmpty) {
-        return r.studentId == _resolvedStudentId;
-      }
-      return r.requesterName.toLowerCase() == _resolvedStudentName.toLowerCase();
-    }).toList();
+    final studentLeaves = _resolvedStudentId.isNotEmpty
+        ? (leaveStore?.requestsForStudent(_resolvedStudentId) ?? [])
+        : <LeaveRequest>[];
 
     final filtered = studentLeaves.where((r) {
       if (_leaveFilterStatus == 'All') return true;
@@ -672,44 +614,11 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
 
             // Leaves list
             if (filtered.isEmpty)
-              Card(
-                elevation: 0,
-                color: colorScheme.surfaceContainerHighest.withValues(alpha: 0.3),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
-                  side: BorderSide(color: colorScheme.outlineVariant),
-                ),
-                child: Padding(
-                  padding: const EdgeInsets.all(32),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.event_available_rounded,
-                          size: 48,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          'No leave requests found',
-                          style: theme.textTheme.titleMedium?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Need time off? Click "Apply for Leave" above to submit an application.',
-                          textAlign: TextAlign.center,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              const PortalEmptyStateCard(
+                icon: Icons.event_available_rounded,
+                title: 'No leave requests found',
+                message:
+                    'Need time off? Click "Apply for Leave" above to submit an application.',
               )
             else
               ListView.separated(
@@ -718,260 +627,11 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
                 itemCount: filtered.length,
                 separatorBuilder: (_, _) => const SizedBox(height: 12),
                 itemBuilder: (ctx, index) {
-                  return _buildLeaveRequestCard(filtered[index], theme, colorScheme);
+                  return PortalLeaveRequestCard(item: filtered[index]);
                 },
               ),
           ],
         ),
-      ),
-    );
-  }
-
-  Widget _buildLeaveRequestCard(
-    LeaveRequest item,
-    ThemeData theme,
-    ColorScheme colorScheme,
-  ) {
-    final statusColor = item.status.color;
-
-    return Card(
-      elevation: 1,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: colorScheme.outlineVariant.withValues(alpha: 0.5)),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Status and Type Header
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(8),
-                        decoration: BoxDecoration(
-                          color: colorScheme.primaryContainer.withValues(alpha: 0.7),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Icon(
-                          Icons.calendar_month_rounded,
-                          size: 20,
-                          color: colorScheme.onPrimaryContainer,
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Flexible(
-                        child: Text(
-                          item.leaveType,
-                          style: theme.textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                  decoration: BoxDecoration(
-                    color: statusColor.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: statusColor.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        item.status == LeaveStatus.approved
-                            ? Icons.check_circle_rounded
-                            : item.status == LeaveStatus.rejected
-                                ? Icons.cancel_rounded
-                                : Icons.hourglass_top_rounded,
-                        size: 14,
-                        color: statusColor,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        item.status.displayName,
-                        style: TextStyle(
-                          color: statusColor,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Date Range
-            Row(
-              children: [
-                Icon(
-                  Icons.date_range_rounded,
-                  size: 16,
-                  color: colorScheme.onSurfaceVariant,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  item.dateRange,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '• ${_calculateDuration(item.startDate, item.endDate)}',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            // Reason
-            if (item.reason.isNotEmpty)
-              Text(
-                item.reason,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurface,
-                ),
-              ),
-
-            // Supporting Attachment
-            if (item.attachmentUrl != null && item.attachmentUrl!.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              _buildAttachmentPill(item.attachmentUrl!, colorScheme, theme),
-            ],
-
-            const Divider(height: 20),
-
-            // Teacher/Admin Remarks Section
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: item.remarks != null && item.remarks!.isNotEmpty
-                    ? (item.status == LeaveStatus.approved
-                        ? Colors.green.withValues(alpha: 0.08)
-                        : item.status == LeaveStatus.rejected
-                            ? Colors.red.withValues(alpha: 0.08)
-                            : colorScheme.surfaceContainerHighest.withValues(alpha: 0.4))
-                    : colorScheme.surfaceContainerHighest.withValues(alpha: 0.25),
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: item.remarks != null && item.remarks!.isNotEmpty
-                      ? (item.status == LeaveStatus.approved
-                          ? Colors.green.withValues(alpha: 0.3)
-                          : item.status == LeaveStatus.rejected
-                              ? Colors.red.withValues(alpha: 0.3)
-                              : colorScheme.outlineVariant)
-                      : colorScheme.outlineVariant.withValues(alpha: 0.4),
-                ),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.rate_review_outlined,
-                        size: 15,
-                        color: colorScheme.onSurfaceVariant,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Teacher / Admin Remarks',
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    item.remarks != null && item.remarks!.trim().isNotEmpty
-                        ? item.remarks!
-                        : (item.status == LeaveStatus.pending
-                            ? 'Awaiting review and remarks from faculty or administration.'
-                            : 'No remarks recorded.'),
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      fontStyle: item.remarks == null || item.remarks!.trim().isEmpty
-                          ? FontStyle.italic
-                          : FontStyle.normal,
-                      color: item.remarks != null && item.remarks!.trim().isNotEmpty
-                          ? colorScheme.onSurface
-                          : colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildAttachmentPill(String url, ColorScheme colorScheme, ThemeData theme) {
-    final isOfflineQueued = url.startsWith('offline_queued://');
-    final displayName = isOfflineQueued
-        ? url.replaceFirst('offline_queued://', '').split('/').last
-        : url.split('/').last;
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: colorScheme.primaryContainer.withValues(alpha: 0.3),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colorScheme.outlineVariant),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isOfflineQueued ? Icons.cloud_queue_rounded : Icons.attachment_rounded,
-            size: 16,
-            color: colorScheme.primary,
-          ),
-          const SizedBox(width: 6),
-          Flexible(
-            child: Text(
-              isOfflineQueued
-                  ? 'Queued Attachment: $displayName'
-                  : 'Medical / Supporting Document: $displayName',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: colorScheme.primary,
-                fontWeight: FontWeight.w600,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          if (isOfflineQueued) ...[
-            const SizedBox(width: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-              decoration: BoxDecoration(
-                color: Colors.amber.withValues(alpha: 0.2),
-                borderRadius: BorderRadius.circular(4),
-              ),
-              child: const Text(
-                'Offline Queued',
-                style: TextStyle(fontSize: 10, color: Colors.orange, fontWeight: FontWeight.bold),
-              ),
-            ),
-          ],
-        ],
       ),
     );
   }
@@ -981,376 +641,6 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
       avatar: CircleAvatar(backgroundColor: color, radius: 5),
       label: Text('$label: $count'),
       visualDensity: VisualDensity.compact,
-    );
-  }
-
-  String _calculateDuration(DateTime start, DateTime end) {
-    final diff = end.difference(start).inDays + 1;
-    return diff <= 1 ? '1 day' : '$diff days';
-  }
-
-  Widget _buildStudentInfoCard(ThemeData theme, ColorScheme colorScheme) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          children: [
-            CircleAvatar(
-              radius: 28,
-              backgroundColor: colorScheme.primaryContainer,
-              child: Text(
-                _resolvedStudentName.isNotEmpty ? _resolvedStudentName[0].toUpperCase() : 'S',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme.onPrimaryContainer,
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    _resolvedStudentName,
-                    style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
-                  ),
-                  if (_student?.rollNumber.isNotEmpty == true)
-                    Text(
-                      'Roll No: ${_student!.rollNumber}',
-                      style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
-                    ),
-                  if (_studentClass != null)
-                    Text(
-                      'Class: ${_studentClass!.displayName}',
-                      style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
-                    ),
-                  if (_department != null)
-                    Text(
-                      'Department: ${_department!.name}',
-                      style: theme.textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // ---------------------------------------------------------------------------
-  // Tab 3: Notice Board & Circulars (read-only student view)
-  // ---------------------------------------------------------------------------
-
-  Widget _buildNoticesTab(ThemeData theme, ColorScheme colorScheme) {
-    // Try to access NoticeStore — it may not be in the tree in some contexts.
-    NoticeStore? noticeStore;
-    try {
-      noticeStore = Provider.of<NoticeStore>(context, listen: true);
-    } catch (_) {}
-
-    if (noticeStore == null) {
-      return Center(
-        child: Text(
-          'Notice board unavailable.',
-          style: theme.textTheme.bodyMedium
-              ?.copyWith(color: colorScheme.onSurfaceVariant),
-        ),
-      );
-    }
-
-    final filtered = noticeStore.noticesForUser(
-      role: 'student',
-      departmentId: _department?.id,
-    );
-
-    final pinned = filtered.where((n) => n.isPinned).toList();
-    final unpinned = filtered.where((n) => !n.isPinned).toList();
-
-    if (filtered.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.campaign_outlined,
-                size: 56,
-                color: colorScheme.onSurfaceVariant.withValues(alpha: 0.5),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'No notices for you right now.',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'Check back later for institute announcements and circulars.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-      );
-    }
-
-    return RefreshIndicator(
-      onRefresh: _loadAllData,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // ── Pinned Notices ───────────────────────────────────────────
-            if (pinned.isNotEmpty) ...[
-              Row(
-                children: [
-                  Icon(Icons.push_pin_rounded,
-                      size: 16, color: colorScheme.primary),
-                  const SizedBox(width: 6),
-                  Text(
-                    'Pinned',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              ...pinned.map((n) => _buildStudentNoticeCard(
-                    n,
-                    theme,
-                    colorScheme,
-                    isPinnedSection: true,
-                  )),
-              const SizedBox(height: 20),
-            ],
-
-            // ── All Notices ──────────────────────────────────────────────
-            if (unpinned.isNotEmpty) ...[
-              Text(
-                'Recent Announcements',
-                style: theme.textTheme.labelLarge?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 8),
-              ...unpinned.map((n) => _buildStudentNoticeCard(
-                    n,
-                    theme,
-                    colorScheme,
-                    isPinnedSection: false,
-                  )),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStudentNoticeCard(
-    Notice notice,
-    ThemeData theme,
-    ColorScheme colorScheme, {
-    required bool isPinnedSection,
-  }) {
-    final dateStr =
-        DateFormat('d MMM yyyy').format(notice.createdAt.toLocal());
-    final publisher = notice.publishedByName ?? 'Admin';
-
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 10),
-      child: Card(
-        elevation: isPinnedSection ? 2 : 1,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-          side: BorderSide(
-            color: isPinnedSection
-                ? colorScheme.primary.withValues(alpha: 0.5)
-                : colorScheme.outlineVariant,
-            width: isPinnedSection ? 1.5 : 1,
-          ),
-        ),
-        color: isPinnedSection
-            ? colorScheme.primaryContainer.withValues(alpha: 0.15)
-            : null,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => _showStudentNoticeDetail(context, notice, theme),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (isPinnedSection) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(right: 6, top: 2),
-                        child: Icon(
-                          Icons.push_pin_rounded,
-                          size: 14,
-                          color: colorScheme.primary,
-                        ),
-                      ),
-                    ],
-                    Expanded(
-                      child: Text(
-                        notice.title,
-                        style: theme.textTheme.bodyMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                    // Date chip
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: colorScheme.surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Text(
-                        dateStr,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
-                          fontSize: 10,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 6),
-                // Body preview
-                Text(
-                  notice.body,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Row(
-                  children: [
-                    Icon(Icons.person_outline_rounded,
-                        size: 12, color: colorScheme.onSurfaceVariant),
-                    const SizedBox(width: 4),
-                    Text(
-                      publisher,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.onSurfaceVariant,
-                        fontSize: 11,
-                      ),
-                    ),
-                    if (notice.attachmentUrl != null &&
-                        notice.attachmentUrl!.isNotEmpty) ...[
-                      const SizedBox(width: 8),
-                      Icon(Icons.attachment_rounded,
-                          size: 12, color: colorScheme.primary),
-                      const SizedBox(width: 2),
-                      Text(
-                        'Attachment',
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.primary,
-                          fontSize: 11,
-                        ),
-                      ),
-                    ],
-                    const Spacer(),
-                    Text(
-                      'Tap to read more →',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: colorScheme.primary,
-                        fontSize: 10,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  void _showStudentNoticeDetail(
-      BuildContext context, Notice notice, ThemeData theme) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          notice.title,
-          style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                notice.body,
-                style: theme.textTheme.bodyMedium,
-              ),
-              if (notice.attachmentUrl != null &&
-                  notice.attachmentUrl!.isNotEmpty) ...[
-                const SizedBox(height: 12),
-                const Divider(),
-                const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.attachment_rounded,
-                      size: 16,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(
-                        notice.attachmentUrl!,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.primary,
-                          decoration: TextDecoration.underline,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-              const SizedBox(height: 10),
-              Text(
-                'By ${notice.publishedByName ?? "Admin"} · '
-                '${DateFormat("d MMM yyyy").format(notice.createdAt.toLocal())}',
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
     );
   }
 }

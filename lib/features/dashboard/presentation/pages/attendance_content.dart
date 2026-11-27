@@ -4,9 +4,11 @@ import 'package:provider/provider.dart';
 
 import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
+import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/state/rbac_store.dart';
+import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
 /// Subject-based Attendance page following the strict academic hierarchy:
@@ -40,10 +42,6 @@ class _AttendanceContentState extends State<AttendanceContent>
   String? _selectedSubjectId;
   DateTime _selectedDate = DateTime.now();
 
-  /// Allowed class/subject IDs for the current teacher (null = unrestricted).
-  Set<String>? _allowedClassIds;
-  Set<String>? _allowedSubjectIds;
-
   final TextEditingController _remarksController = TextEditingController();
   bool _isLoadingRoster = false;
   bool _isSaving = false;
@@ -57,11 +55,7 @@ class _AttendanceContentState extends State<AttendanceContent>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    WidgetsBinding.instance.addPostFrameCallback((_) async {
-      _initDefaultSelections();
-      await _loadAllowedClassAndSubjectIds();
-      if (mounted) setState(() {});
-    });
+    WidgetsBinding.instance.addPostFrameCallback((_) => _initDefaultSelections());
   }
 
   @override
@@ -174,17 +168,6 @@ class _AttendanceContentState extends State<AttendanceContent>
     }
   }
 
-  /// Loads the teacher's allowed class/subject IDs from RBAC. Null means
-  /// unrestricted (institute-wide or department-wide attendance permission).
-  Future<void> _loadAllowedClassAndSubjectIds() async {
-    final attendanceStore = context.read<AttendanceStore>();
-    final allowed = await attendanceStore.getAllowedClassAndSubjectIds();
-    if (mounted) {
-      _allowedClassIds = allowed.classIds;
-      _allowedSubjectIds = allowed.subjectIds;
-    }
-  }
-
   List<Student> _getTargetStudents() {
     final instituteStore = context.read<InstituteStore>();
     if (_selectedClassId == null) return [];
@@ -260,8 +243,10 @@ class _AttendanceContentState extends State<AttendanceContent>
     final attendanceStore = context.read<AttendanceStore>();
     final rbacStore = context.read<RBACStore>();
 
-    final canOverride =
-        rbacStore.hasPermission('attendance.correct_after_deadline');
+    final canOverride = rbacStore.hasPermission(
+      PermissionCodes.attendanceCorrectAfterDeadline,
+      departmentId: _selectedDepartmentId,
+    );
 
     if (attendanceStore.isSessionLocked && !canOverride) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -305,6 +290,17 @@ class _AttendanceContentState extends State<AttendanceContent>
                 : 'Attendance recorded for ${subject?.name ?? 'Subject'} on ${DateFormat('d MMM yyyy').format(_selectedDate)}',
           ),
           backgroundColor: Colors.green.shade700,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    } on PermissionDeniedException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Permission denied (${e.permissionCode}): you are not authorized to mark or edit attendance for this department.',
+          ),
+          backgroundColor: Colors.red.shade700,
           behavior: SnackBarBehavior.floating,
         ),
       );
@@ -367,6 +363,25 @@ class _AttendanceContentState extends State<AttendanceContent>
     _loadAttendanceRoster();
   }
 
+  bool _canWriteAttendance(RBACStore rbacStore, AttendanceStore attendanceStore) {
+    final isPreviouslySaved = attendanceStore.isPreviouslySaved;
+    final hasWritePerm = isPreviouslySaved
+        ? rbacStore.hasAnyPermission(
+            const [
+              PermissionCodes.attendanceEdit,
+              PermissionCodes.attendanceMark,
+            ],
+            departmentId: _selectedDepartmentId,
+          )
+        : rbacStore.hasPermission(
+            PermissionCodes.attendanceMark,
+            departmentId: _selectedDepartmentId,
+          );
+    final hasDeptAccess = _selectedDepartmentId == null ||
+        PermissionService.instance.canAccessDepartment(_selectedDepartmentId);
+    return hasWritePerm && hasDeptAccess;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -374,11 +389,22 @@ class _AttendanceContentState extends State<AttendanceContent>
     final rbacStore = context.watch<RBACStore>();
     final attendanceStore = context.watch<AttendanceStore>();
 
-    final canOverride =
-        rbacStore.hasPermission('attendance.correct_after_deadline');
+    final canOverride = rbacStore.hasPermission(
+      PermissionCodes.attendanceCorrectAfterDeadline,
+      departmentId: _selectedDepartmentId,
+    );
     final isLocked = attendanceStore.isSessionLocked;
+    final canWrite = _canWriteAttendance(rbacStore, attendanceStore);
 
-    return SafeArea(
+    return PermissionGuard(
+      permission: PermissionCodes.attendanceView,
+      fallback: const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('You do not have permission to view attendance.'),
+        ),
+      ),
+      child: SafeArea(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -459,7 +485,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                         ),
                       ],
                     ),
-                    if (_tabController.index == 0)
+                    if (_tabController.index == 0 && canWrite)
                       if (isLocked && !canOverride)
                         FilledButton.icon(
                           key: const Key('saveAttendanceHeaderButton'),
@@ -550,6 +576,7 @@ class _AttendanceContentState extends State<AttendanceContent>
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -562,10 +589,13 @@ class _AttendanceContentState extends State<AttendanceContent>
     final attendanceStore = context.watch<AttendanceStore>();
     final rbacStore = context.watch<RBACStore>();
 
-    final canOverride =
-        rbacStore.hasPermission('attendance.correct_after_deadline');
+    final canOverride = rbacStore.hasPermission(
+      PermissionCodes.attendanceCorrectAfterDeadline,
+      departmentId: _selectedDepartmentId,
+    );
     final isLocked = attendanceStore.isSessionLocked;
-    final isEditable = !isLocked || canOverride;
+    final canWrite = _canWriteAttendance(rbacStore, attendanceStore);
+    final isEditable = (!isLocked || canOverride) && canWrite;
 
     final departments = instituteStore.activeDepartments;
     final sessions = instituteStore.academicSessions;
@@ -576,19 +606,6 @@ class _AttendanceContentState extends State<AttendanceContent>
     final availableSubjects = _selectedClassId != null
         ? instituteStore.subjectsForClassAndYear(_selectedClassId!, _selectedYear)
         : <Subject>[];
-
-    // Filter by allowed class/subject IDs for scoped (non-institute-wide,
-    // non-department-wide) teachers. Null means unrestricted access.
-    final filteredClasses = _allowedClassIds != null
-        ? availableClasses
-            .where((c) => _allowedClassIds!.contains(c.id))
-            .toList()
-        : availableClasses;
-    final filteredSubjects = _allowedSubjectIds != null
-        ? availableSubjects
-            .where((s) => _allowedSubjectIds!.contains(s.id))
-            .toList()
-        : availableSubjects;
 
     final students = _getTargetStudents();
     final draftStatuses = attendanceStore.draftStatuses;
@@ -710,7 +727,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                             labelText: 'Class',
                             prefixIcon: Icon(Icons.class_outlined),
                           ),
-                          items: filteredClasses
+                          items: availableClasses
                               .map(
                                 (c) => DropdownMenuItem(
                                   value: c.id,
@@ -724,7 +741,7 @@ class _AttendanceContentState extends State<AttendanceContent>
                           onChanged: (val) {
                             setState(() {
                               _selectedClassId = val;
-                              final cls = filteredClasses
+                              final cls = availableClasses
                                   .where((c) => c.id == val)
                                   .firstOrNull;
                               if (cls != null && cls.currentYear.isNotEmpty) {
@@ -779,8 +796,8 @@ class _AttendanceContentState extends State<AttendanceContent>
                             labelText: 'Subject',
                             prefixIcon: Icon(Icons.menu_book_rounded),
                           ),
-                          items: (filteredSubjects.isNotEmpty
-                                  ? filteredSubjects
+                          items: (availableSubjects.isNotEmpty
+                                  ? availableSubjects
                                   : (_selectedClassId != null
                                       ? instituteStore
                                           .subjectsForClass(_selectedClassId!)
@@ -1364,8 +1381,10 @@ class _AttendanceContentState extends State<AttendanceContent>
                         const Duration(hours: 24);
 
                 final rbacStore = context.watch<RBACStore>();
-                final canOverride =
-                    rbacStore.hasPermission('attendance.correct_after_deadline');
+                final canOverride = rbacStore.hasPermission(
+                  PermissionCodes.attendanceCorrectAfterDeadline,
+                  departmentId: _selectedDepartmentId,
+                );
 
                 final rate = (session['attendanceRate'] as num?)?.toDouble() ?? 0.0;
                 final total = session['totalMarked'] ?? 0;

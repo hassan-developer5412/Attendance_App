@@ -11,6 +11,7 @@ import 'package:attendance_app/core/models/lab_inventory.dart';
 import 'package:attendance_app/core/models/leave_request.dart';
 import 'package:attendance_app/core/models/role.dart';
 import 'package:attendance_app/core/models/timetable_slot.dart';
+import 'package:attendance_app/core/repositories/attendance_repository.dart';
 import 'package:attendance_app/core/repositories/attendance_session_repository.dart';
 import 'package:attendance_app/core/repositories/class_repository.dart';
 import 'package:attendance_app/core/repositories/faculty_repository.dart';
@@ -48,6 +49,7 @@ void main() {
   late RoleRepository roleRepo;
   late UserRoleRepository userRoleRepo;
   late AttendanceSessionRepository sessionRepo;
+  late AttendanceRepository attendanceRepo;
   late LeaveRepository leaveRepo;
 
   const deptA = 'dept_a';
@@ -73,6 +75,7 @@ void main() {
     roleRepo = RoleRepository(dbHelper: dbHelper);
     userRoleRepo = UserRoleRepository(dbHelper: dbHelper);
     sessionRepo = AttendanceSessionRepository(dbHelper: dbHelper);
+    attendanceRepo = AttendanceRepository(dbHelper: dbHelper);
     leaveRepo = LeaveRepository(dbHelper: dbHelper);
 
     PermissionService.instance.reset();
@@ -363,6 +366,35 @@ void main() {
       );
       await expectLater(
         sessionRepo.softDelete('sess_1'),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+
+      // AttendanceRepository
+      await expectLater(
+        attendanceRepo.ensureSession(
+          departmentId: deptA,
+          academicSessionId: 'acad_1',
+          classId: 'c1',
+          year: '1st Year',
+          subjectId: 'sub1',
+          date: DateTime.utc(2026, 11, 26),
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendanceForSession(
+          sessionId: 'sess_1',
+          studentId: 's_1',
+          status: AttendanceStatus.present,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendance(
+          studentId: 's_1',
+          date: DateTime.utc(2026, 11, 26),
+          status: AttendanceStatus.present,
+        ),
         throwsA(isA<PermissionDeniedException>()),
       );
     }
@@ -874,6 +906,317 @@ void main() {
         leaveRepo.updateStatus('leave_admin_own', LeaveStatus.approved),
         throwsA(isA<PermissionDeniedException>()),
       );
+    });
+  });
+
+  group('AttendanceRepository RBAC and department scoping', () {
+    Future<({String classAId, String classBId, String studentAId, String studentBId, String sessionBId})>
+        seedTwoDepartmentsAsAdmin() async {
+      signInAsAdmin();
+      final classA = await classRepo.insert(
+        name: 'CIT-1st Year',
+        departmentId: deptA,
+      );
+      final classB = await classRepo.insert(
+        name: 'LT-1st Year',
+        departmentId: deptB,
+      );
+      final studentA = await studentRepo.insert(
+        name: 'Student Dept A',
+        rollNumber: 'A-101',
+        classId: classA.id,
+        departmentId: deptA,
+      );
+      final studentB = await studentRepo.insert(
+        name: 'Student Dept B',
+        rollNumber: 'B-101',
+        classId: classB.id,
+        departmentId: deptB,
+      );
+      final sessionBId = await attendanceRepo.ensureSession(
+        departmentId: deptB,
+        academicSessionId: 'acad_2026',
+        classId: classB.id,
+        year: '1st Year',
+        subjectId: 'sub_b',
+        date: DateTime.utc(2026, 11, 26),
+      );
+      await attendanceRepo.upsertAttendanceForSession(
+        sessionId: sessionBId,
+        studentId: studentB.id,
+        status: AttendanceStatus.present,
+      );
+      await attendanceRepo.upsertAttendance(
+        studentId: studentB.id,
+        date: DateTime.utc(2026, 11, 25),
+        status: AttendanceStatus.present,
+      );
+      PermissionService.instance.reset();
+      return (
+        classAId: classA.id,
+        classBId: classB.id,
+        studentAId: studentA.id,
+        studentBId: studentB.id,
+        sessionBId: sessionBId,
+      );
+    }
+
+    test('unauthenticated and suspended users fail closed on AttendanceRepository writes', () async {
+      final seeded = await seedTwoDepartmentsAsAdmin();
+
+      // Unauthenticated
+      expect(PermissionService.instance.currentUserId, isNull);
+      await expectLater(
+        attendanceRepo.ensureSession(
+          departmentId: deptA,
+          academicSessionId: 'acad_2026',
+          classId: seeded.classAId,
+          year: '1st Year',
+          subjectId: 'sub_a',
+          date: DateTime.utc(2026, 11, 26),
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendanceForSession(
+          sessionId: seeded.sessionBId,
+          studentId: seeded.studentBId,
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendance(
+          studentId: seeded.studentAId,
+          date: DateTime.utc(2026, 11, 26),
+          status: AttendanceStatus.present,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+
+      // Suspended Admin
+      signInAsAdmin(userId: 'u_susp_att', suspended: true);
+      await expectLater(
+        attendanceRepo.ensureSession(
+          departmentId: deptA,
+          academicSessionId: 'acad_2026',
+          classId: seeded.classAId,
+          year: '1st Year',
+          subjectId: 'sub_a',
+          date: DateTime.utc(2026, 11, 26),
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendanceForSession(
+          sessionId: seeded.sessionBId,
+          studentId: seeded.studentBId,
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendance(
+          studentId: seeded.studentAId,
+          date: DateTime.utc(2026, 11, 26),
+          status: AttendanceStatus.present,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+    });
+
+    test('cross-department HOD can mark/edit Dept A but is blocked on Dept B', () async {
+      final seeded = await seedTwoDepartmentsAsAdmin();
+
+      signInAsHod(
+        userId: 'u_hod_a',
+        departments: const {deptA},
+        permissions: const [
+          PermissionCodes.attendanceView,
+          PermissionCodes.attendanceMark,
+          PermissionCodes.attendanceEdit,
+        ],
+      );
+
+      // Dept A succeeds
+      final sessionAId = await attendanceRepo.ensureSession(
+        departmentId: deptA,
+        academicSessionId: 'acad_2026',
+        classId: seeded.classAId,
+        year: '1st Year',
+        subjectId: 'sub_a',
+        date: DateTime.utc(2026, 11, 26),
+      );
+      await attendanceRepo.upsertAttendanceForSession(
+        sessionId: sessionAId,
+        studentId: seeded.studentAId,
+        status: AttendanceStatus.present,
+      );
+      await attendanceRepo.upsertAttendanceForSession(
+        sessionId: sessionAId,
+        studentId: seeded.studentAId,
+        status: AttendanceStatus.late,
+      );
+      await attendanceRepo.upsertAttendance(
+        studentId: seeded.studentAId,
+        date: DateTime.utc(2026, 11, 25),
+        status: AttendanceStatus.present,
+      );
+
+      // Dept B throws PermissionDeniedException
+      await expectLater(
+        attendanceRepo.ensureSession(
+          departmentId: deptB,
+          academicSessionId: 'acad_2026',
+          classId: seeded.classBId,
+          year: '1st Year',
+          subjectId: 'sub_b2',
+          date: DateTime.utc(2026, 11, 27),
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendanceForSession(
+          sessionId: seeded.sessionBId,
+          studentId: seeded.studentBId,
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendance(
+          studentId: seeded.studentBId,
+          date: DateTime.utc(2026, 11, 25),
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+    });
+
+    test('authorized teacher succeeds in assigned dept, fails in other dept or without mark permission', () async {
+      final seeded = await seedTwoDepartmentsAsAdmin();
+
+      final teacherRole = Role(
+        id: 'r_teacher_att',
+        name: 'Teacher',
+        code: 'teacher',
+        isInstituteWide: false,
+      );
+      final viewOnlyRole = Role(
+        id: 'r_viewer_att',
+        name: 'Viewer',
+        code: 'student',
+        isInstituteWide: false,
+      );
+      PermissionService.instance.loadRoles([teacherRole, viewOnlyRole]);
+      PermissionService.instance.grantPermissionToRole(
+        teacherRole.id,
+        PermissionCodes.attendanceView,
+      );
+      PermissionService.instance.grantPermissionToRole(
+        teacherRole.id,
+        PermissionCodes.attendanceMark,
+      );
+      PermissionService.instance.grantPermissionToRole(
+        viewOnlyRole.id,
+        PermissionCodes.attendanceView,
+      );
+
+      // Teacher assigned to Dept A
+      PermissionService.instance.assignRoleToUser('u_teacher_a', teacherRole.id);
+      PermissionService.instance.setUserDepartments('u_teacher_a', {deptA});
+      PermissionService.instance.currentUserId = 'u_teacher_a';
+
+      final sessionAId = await attendanceRepo.ensureSession(
+        departmentId: deptA,
+        academicSessionId: 'acad_2026',
+        classId: seeded.classAId,
+        year: '1st Year',
+        subjectId: 'sub_a',
+        date: DateTime.utc(2026, 11, 26),
+      );
+      await attendanceRepo.upsertAttendanceForSession(
+        sessionId: sessionAId,
+        studentId: seeded.studentAId,
+        status: AttendanceStatus.present,
+      );
+      await attendanceRepo.upsertAttendance(
+        studentId: seeded.studentAId,
+        date: DateTime.utc(2026, 11, 26),
+        status: AttendanceStatus.late,
+      );
+
+      // Same teacher cannot mark/alter Dept B attendance
+      await expectLater(
+        attendanceRepo.upsertAttendanceForSession(
+          sessionId: seeded.sessionBId,
+          studentId: seeded.studentBId,
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendance(
+          studentId: seeded.studentBId,
+          date: DateTime.utc(2026, 11, 26),
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+
+      // User with only attendance.view cannot mark/edit even in Dept A
+      PermissionService.instance.assignRoleToUser('u_view_only', viewOnlyRole.id);
+      PermissionService.instance.setUserDepartments('u_view_only', {deptA});
+      PermissionService.instance.currentUserId = 'u_view_only';
+
+      await expectLater(
+        attendanceRepo.upsertAttendanceForSession(
+          sessionId: sessionAId,
+          studentId: seeded.studentAId,
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+      await expectLater(
+        attendanceRepo.upsertAttendance(
+          studentId: seeded.studentAId,
+          date: DateTime.utc(2026, 11, 26),
+          status: AttendanceStatus.absent,
+        ),
+        throwsA(isA<PermissionDeniedException>()),
+      );
+    });
+
+    test('authorized Admin succeeds across Dept A and Dept B', () async {
+      final seeded = await seedTwoDepartmentsAsAdmin();
+      signInAsAdmin();
+
+      final sessionAId = await attendanceRepo.ensureSession(
+        departmentId: deptA,
+        academicSessionId: 'acad_2026',
+        classId: seeded.classAId,
+        year: '1st Year',
+        subjectId: 'sub_a',
+        date: DateTime.utc(2026, 11, 26),
+      );
+      await attendanceRepo.upsertAttendanceForSession(
+        sessionId: sessionAId,
+        studentId: seeded.studentAId,
+        status: AttendanceStatus.present,
+      );
+      await attendanceRepo.upsertAttendanceForSession(
+        sessionId: seeded.sessionBId,
+        studentId: seeded.studentBId,
+        status: AttendanceStatus.late,
+      );
+      await attendanceRepo.upsertAttendance(
+        studentId: seeded.studentBId,
+        date: DateTime.utc(2026, 11, 26),
+        status: AttendanceStatus.present,
+      );
+
+      final deptBRecords = await attendanceRepo.getForSession(seeded.sessionBId);
+      expect(deptBRecords.single.status, equals(AttendanceStatus.present));
     });
   });
 }

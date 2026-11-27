@@ -285,6 +285,66 @@ class PermissionService {
     return false;
   }
 
+  /// Throws [PermissionDeniedException] unless the user holds [permissionCode].
+  ///
+  /// Enforces strict fail-closed checks: unauthenticated (`currentUserId == null`)
+  /// and suspended users immediately throw [PermissionDeniedException].
+  void requirePermission(
+    String permissionCode, {
+    String? userId,
+    String? departmentId,
+    String? classId,
+    String? ownerUserId,
+  }) {
+    final uid = userId ?? currentUserId;
+    if (!hasPermission(
+      permissionCode,
+      userId: uid,
+      departmentId: departmentId,
+      classId: classId,
+      ownerUserId: ownerUserId,
+    )) {
+      throw PermissionDeniedException(
+        permissionCode,
+        userId: uid,
+        departmentId: departmentId,
+      );
+    }
+  }
+
+  /// Returns `true` when [userId] (or [currentUserId]) is allowed to access
+  /// [departmentId].
+  ///
+  /// Authority rules:
+  ///   * Unauthenticated (`currentUserId == null`), suspended users, and users
+  ///     with no active roles fail closed (`false`).
+  ///   * Institute-wide roles (Admin, Principal, Vice Principal) bypass
+  ///     department scoping and return `true`.
+  ///   * When [departmentId] is `null` or empty, returns `true` for
+  ///     authenticated non-suspended users with an active role.
+  ///   * Non-institute-wide users (HOD, Teacher, Lab In-Charge, Assistant,
+  ///     custom roles) must have [departmentId] in their assigned departments.
+  bool canAccessDepartment(String? departmentId, {String? userId}) {
+    final uid = userId ?? currentUserId;
+    if (uid == null || isUserSuspended(uid)) return false;
+
+    final roleIds = _userRoles[uid];
+    if (roleIds == null || roleIds.isEmpty) return false;
+
+    final hasInstituteWide = roleIds.any((roleId) {
+      final role = _roles[roleId] ?? _rolesByCode[roleId];
+      return role != null &&
+          !role.isDeleted &&
+          (role.isInstituteWide || Role.isCodeInstituteWide(role.code));
+    });
+    if (hasInstituteWide) return true;
+
+    if (departmentId == null || departmentId.isEmpty) return true;
+
+    final userDepartments = _userDepartments[uid] ?? const <String>{};
+    return userDepartments.contains(departmentId);
+  }
+
   /// Whether [role] is a department-scoped staff role whose grants are
   /// limited to the user's assigned departments.
   static bool _isDepartmentScopedStaffRole(Role role) {
