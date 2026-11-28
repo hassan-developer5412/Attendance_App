@@ -1,7 +1,7 @@
 import 'package:sqflite/sqflite.dart';
 
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
-import 'package:attendance_app/core/models/permission.dart';
 import 'package:attendance_app/core/models/timetable_slot.dart';
 import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
@@ -105,7 +105,11 @@ class TimetableRepository {
     _requireTimetableManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
-    final updated = slot.copyWith(updatedAt: now);
+    final updated = slot.copyWith(
+      updatedAt: now,
+      syncStatus: SyncStatus.pending,
+      isSynced: false,
+    );
     await _assertNoConflict(db, updated, excludeId: slot.id);
     await db.update(
       'timetable_slots',
@@ -131,6 +135,7 @@ class TimetableRepository {
         'is_deleted': 1,
         'updated_at': now,
         'sync_status': 'PENDING',
+        'is_synced': 0,
       },
       where: 'id = ?',
       whereArgs: [id],

@@ -1,6 +1,6 @@
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_session.dart';
-import 'package:attendance_app/core/models/permission.dart';
 import 'package:attendance_app/core/repositories/attendance_repository.dart';
 import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
@@ -109,10 +109,13 @@ class AttendanceSessionRepository {
     await _ensureClassAndSubjectAuthorized(session);
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
-    final updated = session.copyWith(updatedAt: now);
+    final updated = session.copyWith(
+      updatedAt: now,
+      syncStatus: SyncStatus.pending,
+    );
     await db.update(
       'attendance_sessions',
-      updated.toMap(),
+      {...updated.toMap(), 'is_synced': 0},
       where: 'id = ?',
       whereArgs: [session.id],
     );
@@ -139,6 +142,7 @@ class AttendanceSessionRepository {
           'is_deleted': 1,
           'updated_at': now,
           'sync_status': 'PENDING',
+          'is_synced': 0,
         },
         where: 'id = ?',
         whereArgs: [id],
@@ -151,6 +155,7 @@ class AttendanceSessionRepository {
           'is_deleted': 1,
           'updated_at': now,
           'sync_status': 'PENDING',
+          'is_synced': 0,
         },
         where: 'session_id = ?',
         whereArgs: [id],

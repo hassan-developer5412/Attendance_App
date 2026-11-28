@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide User;
 
 import 'package:attendance_app/core/config/supabase_config.dart';
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/attendance_record.dart';
 import 'package:attendance_app/core/models/attendance_session.dart';
@@ -563,6 +564,10 @@ class SyncService with ChangeNotifier {
     }
   }
 
+  /// Exposes [_enqueueUnsyncedRows] for unit testing.
+  @visibleForTesting
+  Future<void> enqueueUnsyncedRows() => _enqueueUnsyncedRows();
+
   Future<void> _enqueueUnsyncedRows() async {
     final db = await DatabaseHelper.instance.database;
     final alreadyQueued = <String>{};
@@ -835,48 +840,10 @@ class SyncService with ChangeNotifier {
               '(last_synced_at=$lastSynced)');
 
           for (final remoteRow in rows) {
-            final isDeleted = (remoteRow['is_deleted'] as bool?) == true;
-
-            // A remote soft-delete is replicated locally as a deletion so
-            // revoked access (e.g. a revoked role assignment) no longer
-            // applies on this device. A locally-modified row that is still
-            // pending push wins and is left alone until its push completes.
-            if (isDeleted) {
-              if (await localRowIsPending(db, table, remoteRow)) {
-                final id = remoteRow['id']?.toString() ?? '<no-id>';
-                _log('pullAll SKIP $table/$id: local sync_status is PENDING');
-                continue;
-              }
-              await _deleteLocalRow(db, table, remoteRow);
-              continue;
-            }
-
-            final normalized = await normalizeRemoteRowForSqlite(
+            await applyRemoteRow(
               db,
               table,
               Map<String, dynamic>.from(remoteRow),
-            );
-
-            // normalizeRemoteRowForSqlite returns null when a required NOT NULL
-            // column (e.g. role_permissions.permission_code) cannot be resolved.
-            if (normalized == null) {
-              final id = remoteRow['id']?.toString() ?? '<no-id>';
-              _log('pullAll SKIP $table/$id: normalized row is null (missing required column)');
-              continue;
-            }
-
-            // Never clobber a locally-modified row that is still pending push.
-            final row = normalized;
-            if (await localRowIsPending(db, table, row)) {
-              final id = row['id']?.toString() ?? '<no-id>';
-              _log('pullAll SKIP $table/$id: local sync_status is PENDING');
-              continue;
-            }
-
-            await db.insert(
-              table,
-              row,
-              conflictAlgorithm: ConflictAlgorithm.replace,
             );
           }
 
@@ -916,9 +883,122 @@ class SyncService with ChangeNotifier {
     }
   }
 
+  /// Returns `true` when [row] represents a remote soft-delete (`is_deleted`
+  /// is `true` or `1`).
+  static bool _isRemoteRowDeleted(Map<String, dynamic> row) {
+    final raw = row['is_deleted'];
+    return raw == true || raw == 1;
+  }
+
+  /// Applies a single remote row from Supabase into the local SQLite [db].
+  ///
+  /// Remote soft-deletes (`is_deleted == true`) delete the matching local row
+  /// unless it has `sync_status == 'PENDING'`. Normal upserts are normalized
+  /// and written with [ConflictAlgorithm.replace], again preserving any local
+  /// row whose `sync_status == 'PENDING'`.
+  /// Public for testing.
+  Future<void> applyRemoteRow(
+    Database db,
+    String table,
+    Map<String, dynamic> remoteRow,
+  ) async {
+    if (_isRemoteRowDeleted(remoteRow)) {
+      if (await localRowIsPending(db, table, remoteRow)) {
+        final id = remoteRow['id']?.toString() ?? '<no-id>';
+        _log('pullAll SKIP $table/$id: local sync_status is PENDING');
+        return;
+      }
+      await _deleteLocalRow(db, table, remoteRow);
+      return;
+    }
+
+    final normalized = await normalizeRemoteRowForSqlite(
+      db,
+      table,
+      remoteRow,
+    );
+
+    // normalizeRemoteRowForSqlite returns null when a required NOT NULL
+    // column (e.g. role_permissions.permission_code) cannot be resolved.
+    if (normalized == null) {
+      final id = remoteRow['id']?.toString() ?? '<no-id>';
+      _log('pullAll SKIP $table/$id: normalized row is null (missing required column)');
+      return;
+    }
+
+    // Never clobber a locally-modified row that is still pending push.
+    if (await localRowIsPending(db, table, normalized)) {
+      final id = normalized['id']?.toString() ?? '<no-id>';
+      _log('pullAll SKIP $table/$id: local sync_status is PENDING');
+      return;
+    }
+
+    await db.insert(
+      table,
+      normalized,
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Boolean flag columns that map to SQLite `INTEGER NOT NULL DEFAULT 0`.
+  static const Set<String> _boolDefaultZeroColumns = <String>{
+    'is_deleted',
+    'is_pinned',
+    'is_lab',
+    'is_current',
+    'is_suspended',
+    'is_default_password',
+    'is_institute_wide',
+  };
+
+  /// Boolean flag columns that map to SQLite `INTEGER NOT NULL DEFAULT 1`.
+  static const Set<String> _boolDefaultOneColumns = <String>{
+    'is_active',
+  };
+
+  /// Per-table fallback defaults for local `NOT NULL` columns when a remote
+  /// payload omits them or supplies `null` (e.g. `attendance_sessions`
+  /// nullable FKs in Supabase vs `NOT NULL DEFAULT ''` in SQLite).
+  static const Map<String, Map<String, Object>> _tableDefaults =
+      <String, Map<String, Object>>{
+    'notices': <String, Object>{
+      'title': '',
+      'body': '',
+      'published_by': '',
+    },
+    'timetable_slots': <String, Object>{
+      'room_name': '',
+      'start_time': '',
+      'end_time': '',
+    },
+    'attendance_sessions': <String, Object>{
+      'subject_code': '',
+      'department_id': '',
+      'faculty_id': '',
+      'academic_session_id': '',
+      'year': '',
+      'remarks': '',
+    },
+    'leave_requests': <String, Object>{
+      'requester_name': '',
+      'leave_type': '',
+      'reason': '',
+      'status': 'pending',
+    },
+    'lab_inventory': <String, Object>{
+      'item_name': '',
+      'department_id': '',
+      'category': 'HARDWARE_EQUIPMENT',
+      'current_stock': 0.0,
+      'unit': 'pcs',
+      'reorder_level': 0.0,
+    },
+  };
+
   /// Strips Supabase-only columns, coerces PostgreSQL bools to SQLite ints,
-  /// injects sync bookkeeping, and derives deterministic IDs for the
-  /// composite-key join tables. Only columns that exist locally are kept.
+  /// applies safe defaults for missing/null NOT NULL columns, injects sync
+  /// bookkeeping, and derives deterministic IDs for composite-key join tables.
+  /// Only columns that exist locally are kept.
   /// Returns `null` for `role_permissions` rows whose `permission_code` cannot
   /// be resolved (e.g. missing `permission_id` or unknown permission), so the
   /// caller can skip the upsert and avoid a NOT NULL constraint error.
@@ -964,8 +1044,48 @@ class SyncService with ChangeNotifier {
       // Coerce PostgreSQL bool (true/false) to SQLite int (1/0).
       if (value is bool) {
         value = value ? 1 : 0;
+      } else if (value is DateTime) {
+        value = value.toUtc().toIso8601String();
       }
       normalized[col] = value;
+    }
+
+    // Ensure boolean flag columns present in SQLite never remain null.
+    for (final col in _boolDefaultZeroColumns) {
+      if (localColumns.contains(col) && normalized[col] == null) {
+        normalized[col] = 0;
+      }
+    }
+    for (final col in _boolDefaultOneColumns) {
+      if (localColumns.contains(col) && normalized[col] == null) {
+        normalized[col] = 1;
+      }
+    }
+
+    // Ensure required timestamps are populated when omitted or null remotely.
+    final nowIso = DateTime.now().toUtc().toIso8601String();
+    if (localColumns.contains('created_at') && normalized['created_at'] == null) {
+      normalized['created_at'] = normalized['updated_at'] ?? nowIso;
+    }
+    if (localColumns.contains('updated_at') && normalized['updated_at'] == null) {
+      normalized['updated_at'] = normalized['created_at'] ?? nowIso;
+    }
+
+    // Ensure institute_id has a valid fallback when omitted or null.
+    if (localColumns.contains('institute_id') &&
+        (normalized['institute_id'] == null ||
+            normalized['institute_id'].toString().isEmpty)) {
+      normalized['institute_id'] = AppConstants.defaultInstituteId;
+    }
+
+    // Apply per-table defaults for NOT NULL columns when missing or null.
+    final defaults = _tableDefaults[table];
+    if (defaults != null) {
+      for (final entry in defaults.entries) {
+        if (localColumns.contains(entry.key) && normalized[entry.key] == null) {
+          normalized[entry.key] = entry.value;
+        }
+      }
     }
 
     // Deterministic IDs for composite-key join tables so the same assignment
@@ -1022,6 +1142,9 @@ class SyncService with ChangeNotifier {
     } else if (table == 'user_roles') {
       where = 'user_id = ? AND role_id = ?';
       whereArgs = <Object?>[row['user_id'], row['role_id']];
+    } else if (table == 'user_departments') {
+      where = 'user_id = ? AND department_id = ?';
+      whereArgs = <Object?>[row['user_id'], row['department_id']];
     } else if (row.containsKey('id') && row['id'] != null) {
       where = 'id = ?';
       whereArgs = <Object?>[row['id']];

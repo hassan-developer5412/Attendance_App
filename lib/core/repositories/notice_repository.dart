@@ -1,6 +1,6 @@
+import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/database/database_helper.dart';
 import 'package:attendance_app/core/models/notice.dart';
-import 'package:attendance_app/core/models/permission.dart';
 import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/services/sync_service.dart';
 
@@ -118,13 +118,17 @@ class NoticeRepository {
     return notice;
   }
 
-  /// Updates [notice] in SQLite (stamping a fresh `updated_at`) and queues a
-  /// Supabase push.
+  /// Updates [notice] in SQLite (stamping a fresh `updated_at` and marking it
+  /// `PENDING` sync) and queues a Supabase push.
   Future<void> update(Notice notice) async {
     _requireNoticeManage();
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
-    final updated = notice.copyWith(updatedAt: now);
+    final updated = notice.copyWith(
+      updatedAt: now,
+      syncStatus: SyncStatus.pending,
+      isSynced: false,
+    );
     await db.update(
       'notices',
       updated.toMap(),
@@ -149,6 +153,7 @@ class NoticeRepository {
         'is_deleted': 1,
         'updated_at': now,
         'sync_status': 'PENDING',
+        'is_synced': 0,
       },
       where: 'id = ?',
       whereArgs: [id],

@@ -288,6 +288,7 @@ class LeaveRepository {
       'status': newStatus.value,
       'updated_at': now,
       'sync_status': 'PENDING',
+      'is_synced': 0,
     };
     if (remarks != null) {
       updateData['remarks'] = remarks.trim();
@@ -332,7 +333,12 @@ class LeaveRepository {
     final now = DateTime.now().toUtc().toIso8601String();
     await db.update(
       'leave_requests',
-      {'is_deleted': 1, 'updated_at': now, 'sync_status': 'PENDING'},
+      {
+        'is_deleted': 1,
+        'updated_at': now,
+        'sync_status': 'PENDING',
+        'is_synced': 0,
+      },
       where: 'id = ?',
       whereArgs: [id],
     );

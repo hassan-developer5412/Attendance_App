@@ -475,7 +475,7 @@ class _AddSubjectDialogState extends State<_AddSubjectDialog> {
     return AlertDialog(
       title: const Text('Add subject'),
       content: SizedBox(
-        width: 440,
+        width: 450,
         child: Form(
           key: _formKey,
           child: SingleChildScrollView(

@@ -82,10 +82,13 @@ class LabInventoryRepository {
     _requireLabManage(departmentId: item.departmentId);
     final db = await _dbHelper.database;
     final now = DateTime.now().toUtc();
-    final updated = item.copyWith(updatedAt: now);
+    final updated = item.copyWith(
+      updatedAt: now,
+      syncStatus: SyncStatus.pending,
+    );
     await db.update(
       'lab_inventory',
-      updated.toMap(),
+      {...updated.toMap(), 'is_synced': 0},
       where: 'id = ?',
       whereArgs: [item.id],
     );
@@ -115,6 +118,7 @@ class LabInventoryRepository {
         'is_deleted': 1,
         'updated_at': now,
         'sync_status': 'PENDING',
+        'is_synced': 0,
       },
       where: 'id = ?',
       whereArgs: [id],
