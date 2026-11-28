@@ -21,6 +21,7 @@ import 'package:attendance_app/core/state/notice_store.dart';
 import 'package:attendance_app/core/state/timetable_store.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 import 'package:attendance_app/features/auth/presentation/login_screen.dart';
+import 'package:attendance_app/features/auth/presentation/password_change_screen.dart';
 import 'package:attendance_app/features/student_view/presentation/widgets/portal_shared_widgets.dart';
 
 /// Self-Service portal for students.
@@ -342,6 +343,30 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
     }
   }
 
+  /// Opens the voluntary password-change screen for the logged-in student.
+  Future<void> _showChangePassword() async {
+    final authStore = Provider.of<AuthStore>(context, listen: false);
+    if (authStore.currentUser == null) return;
+
+    await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const PasswordChangeScreen(isMandatory: false),
+      ),
+    );
+
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Password changed successfully. Please use your new password to sign in.',
+        ),
+        backgroundColor: Colors.green,
+        behavior: SnackBarBehavior.floating,
+        duration: Duration(seconds: 3),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -354,6 +379,11 @@ class _StudentSelfViewContentState extends State<StudentSelfViewContent>
           style: theme.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.lock_outline_rounded),
+            tooltip: 'Change Password',
+            onPressed: _showChangePassword,
+          ),
           IconButton(
             icon: const Icon(Icons.logout_rounded),
             tooltip: 'Logout',

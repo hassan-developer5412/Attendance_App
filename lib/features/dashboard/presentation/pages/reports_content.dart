@@ -6,6 +6,7 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/models/institute_models.dart';
 import 'package:attendance_app/core/state/attendance_store.dart';
 import 'package:attendance_app/core/state/institute_store.dart';
+import 'package:attendance_app/core/utils/csv_export_service.dart';
 import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/core/widgets/themed_dropdown.dart';
 
@@ -48,6 +49,9 @@ class _ReportsContentState extends State<ReportsContent>
   String? _classReportClassId;
   List<Map<String, dynamic>> _classSubjectSummary = [];
   bool _isLoadingClassReport = false;
+
+  // CSV export state
+  bool _isExporting = false;
 
   @override
   void initState() {
@@ -139,6 +143,101 @@ class _ReportsContentState extends State<ReportsContent>
     });
   }
 
+  // ---------------------------------------------------------------------------
+  // CSV Export
+  // ---------------------------------------------------------------------------
+
+  Future<void> _exportCsv() async {
+    setState(() => _isExporting = true);
+    try {
+      final instituteStore = context.read<InstituteStore>();
+      final attendanceStore = context.read<AttendanceStore>();
+      final students = instituteStore.students;
+      if (students.isEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('No students to export.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+
+      final summary =
+          await attendanceStore.getAllStudentsAttendanceSummary();
+      if (!mounted) return;
+
+      final now = DateTime.now();
+      final fileName =
+          'attendance_report_${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}_${now.hour.toString().padLeft(2, '0')}${now.minute.toString().padLeft(2, '0')}.csv';
+
+      final lines = <String>[];
+      lines.add(
+        'Student Name,Roll No,Class,Department,Year,Total Sessions,Attended,Absent,Attendance %,Status',
+      );
+      for (final row in summary) {
+        final name = row['name'] as String? ?? '';
+        final rollNo = row['roll_number'] as String? ?? '';
+        final className = row['className'] as String? ?? '—';
+        final deptCode = row['departmentCode'] as String? ?? '—';
+        final year = row['current_year'] as String? ?? '—';
+        final totalSessions = (row['totalSessions'] as int? ?? 0);
+        final attendedSessions = (row['attendedSessions'] as int? ?? 0);
+        final absentSessions = totalSessions - attendedSessions;
+        final rate = totalSessions > 0
+            ? ((row['attendanceRate'] as num?)?.toDouble() ?? 0.0)
+            : 0.0;
+        final isDefaulter = rate < 75 && totalSessions > 0;
+        final status = isDefaulter
+            ? 'Defaulter (<75%)'
+            : (totalSessions > 0 ? 'OK' : 'No data');
+        lines.add(
+          '"$name","$rollNo","$className","$deptCode","$year",$totalSessions,$attendedSessions,$absentSessions,${rate.toStringAsFixed(1)},$status',
+        );
+      }
+      final csv = lines.join('\n');
+
+      final path = await saveCsvFile(fileName: fileName, content: csv);
+
+      if (!mounted) return;
+      if (path != null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('CSV exported to $path'),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      } else {
+        // Web: download triggered by the service
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text(
+              'CSV report downloaded (check your Downloads folder).',
+            ),
+            backgroundColor: Colors.green.shade700,
+            behavior: SnackBarBehavior.floating,
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Export failed: $e'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -154,18 +253,48 @@ class _ReportsContentState extends State<ReportsContent>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Reports & Analytics',
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Academic attendance reports and institutional insights',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Reports & Analytics',
+                            style: theme.textTheme.headlineSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            'Academic attendance reports and institutional insights',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    PermissionGuard(
+                      permission: PermissionCodes.reportView,
+                      child: Tooltip(
+                        message: 'Export CSV',
+                        child: IconButton(
+                          icon: _isExporting
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Icon(Icons.file_download_outlined),
+                          onPressed: _isExporting ? null : _exportCsv,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 TabBar(

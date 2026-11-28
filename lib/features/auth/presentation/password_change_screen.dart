@@ -5,14 +5,24 @@ import 'package:attendance_app/core/constants/app_constants.dart';
 import 'package:attendance_app/core/state/auth_store.dart';
 import 'package:attendance_app/features/home/presentation/home_screen.dart';
 
-/// Mandatory password change screen shown after login when the account is
-/// still on its default password.
+/// Password change screen.
 ///
-/// The user must enter and confirm a new password before the dashboard
-/// becomes accessible. On success the default-password flag is cleared and
-/// the password hash is upgraded to bcrypt in SQLite.
+/// Used in two flows:
+/// 1. **Mandatory** — shown after login when the account is still on its
+///    default password. The user must change it before the dashboard opens.
+/// 2. **Voluntary** — opened from Settings/Profile by any logged-in user
+///    (Admin, Teacher, Student, Parent) to rotate their password at will.
+///
+/// On success the password hash is upgraded to bcrypt in SQLite and the
+/// row is flagged `sync_status = 'PENDING'` so [SyncService] pushes it to
+/// Supabase when online.
 class PasswordChangeScreen extends StatefulWidget {
-  const PasswordChangeScreen({super.key});
+  /// When `true` (mandatory flow) a successful change replaces the current
+  /// route with [HomeScreen]. When `false` (voluntary flow) a successful
+  /// change shows a confirmation and pops back to the caller.
+  final bool isMandatory;
+
+  const PasswordChangeScreen({super.key, this.isMandatory = true});
 
   @override
   State<PasswordChangeScreen> createState() => _PasswordChangeScreenState();
@@ -28,6 +38,7 @@ class _PasswordChangeScreenState extends State<PasswordChangeScreen> {
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
   String? _errorMessage;
+  String? _successMessage;
 
   @override
   void initState() {
@@ -44,7 +55,10 @@ class _PasswordChangeScreenState extends State<PasswordChangeScreen> {
   }
 
   Future<void> _handleChangePassword() async {
-    setState(() => _errorMessage = null);
+    setState(() {
+      _errorMessage = null;
+      _successMessage = null;
+    });
 
     if (!_formKey.currentState!.validate()) return;
 
@@ -60,11 +74,31 @@ class _PasswordChangeScreenState extends State<PasswordChangeScreen> {
     setState(() => _isLoading = false);
 
     if (success) {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute<void>(
-          builder: (_) => const HomeScreen(),
-        ),
-      );
+      if (widget.isMandatory) {
+        if (!mounted) return;
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute<void>(
+            builder: (_) => const HomeScreen(),
+          ),
+        );
+      } else {
+        setState(() {
+          _successMessage =
+              'Your password has been changed successfully.';
+          _newPasswordController.clear();
+          _confirmPasswordController.clear();
+        });
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Password changed successfully.'),
+            backgroundColor: Colors.green,
+            behavior: SnackBarBehavior.floating,
+            duration: Duration(seconds: 3),
+          ),
+        );
+        Navigator.of(context).pop(true);
+      }
     } else {
       setState(() {
         _errorMessage = 'Unable to change password. Please try again.';
@@ -161,6 +195,41 @@ class _PasswordChangeScreenState extends State<PasswordChangeScreen> {
                                 _errorMessage!,
                                 style: theme.textTheme.bodySmall?.copyWith(
                                   color: colorScheme.onErrorContainer,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Success banner if any
+                    if (_successMessage != null) ...[
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 14,
+                          vertical: 10,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.green.shade200),
+                        ),
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check_circle_outline_rounded,
+                              size: 20,
+                              color: Colors.green.shade700,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _successMessage!,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: Colors.green.shade800,
                                   fontWeight: FontWeight.w500,
                                 ),
                               ),

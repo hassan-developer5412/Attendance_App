@@ -730,6 +730,45 @@ class AttendanceRepository {
   }
 
   // -------------------------------------------------------------------------
+  // All-students attendance summary (for reports / CSV export)
+  // -------------------------------------------------------------------------
+
+  /// Returns one row per active student with their overall attendance
+  /// percentage across all subjects and sessions.
+  ///
+  /// Columns: `studentId`, `name`, `roll_number`, `class_id`, `department_id`,
+  /// `current_year`, `className`, `departmentCode`, `totalSessions`,
+  /// `attendedSessions`, `attendanceRate`.
+  Future<List<Map<String, dynamic>>> getAllStudentsAttendanceSummary() async {
+    final db = await _dbHelper.database;
+    return await db.rawQuery('''
+      SELECT
+        st.id AS studentId,
+        st.name,
+        st.roll_number,
+        st.class_id,
+        st.department_id,
+        st.current_year,
+        c.name AS className,
+        d.code AS departmentCode,
+        COUNT(r.id) AS totalSessions,
+        SUM(CASE WHEN r.status IN ('present','late') THEN 1 ELSE 0 END) AS attendedSessions,
+        (SUM(CASE WHEN r.status IN ('present','late') THEN 1 ELSE 0 END) * 100.0)
+          / NULLIF(COUNT(r.id), 0) AS attendanceRate
+      FROM students st
+      LEFT JOIN attendance_records r
+        ON r.student_id = st.id AND r.is_deleted = 0
+      LEFT JOIN classes c
+        ON c.id = st.class_id AND c.is_deleted = 0
+      LEFT JOIN departments d
+        ON d.id = st.department_id AND d.is_deleted = 0
+      WHERE st.is_deleted = 0
+      GROUP BY st.id
+      ORDER BY st.name ASC;
+    ''');
+  }
+
+  // -------------------------------------------------------------------------
   // Recent per‑subject stats for a student
   // -------------------------------------------------------------------------
   Future<Map<String, dynamic>> getSubjectRecentStats(String studentId, String subjectId, {int limit = 5}) async {

@@ -287,4 +287,9 @@ class AttendanceStore extends ChangeNotifier {
   Future<List<Map<String, dynamic>>> getDetailedAttendanceForStudent(
           String studentId) =>
       _repository.getDetailedAttendanceForStudent(studentId);
+
+  /// Overall attendance percentage for every active student (used by reports
+  /// and CSV export).
+  Future<List<Map<String, dynamic>>> getAllStudentsAttendanceSummary() =>
+      _repository.getAllStudentsAttendanceSummary();
 }

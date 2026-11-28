@@ -9,6 +9,7 @@ import 'package:attendance_app/core/state/institute_store.dart';
 import 'package:attendance_app/core/services/permission_service.dart';
 import 'package:attendance_app/core/theme/theme_notifier.dart';
 import 'package:attendance_app/core/utils/uuid_utils.dart';
+import 'package:attendance_app/features/auth/presentation/password_change_screen.dart';
 import 'package:attendance_app/features/dashboard/presentation/widgets/institute_form_dialogs.dart';
 import 'package:attendance_app/core/widgets/permission_guard.dart';
 import 'package:attendance_app/features/rbac/presentation/role_management_screen.dart';
@@ -51,6 +52,31 @@ class _SettingsContentState extends State<SettingsContent> {
         behavior: SnackBarBehavior.floating,
       ),
     );
+  }
+
+  /// Opens the voluntary password-change screen. On success (pop returns
+  /// true) shows a confirmation snackbar.
+  Future<void> _showChangePassword() async {
+    final authStore = context.read<AuthStore>();
+    if (authStore.currentUser == null) return;
+
+    final changed = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => const PasswordChangeScreen(isMandatory: false),
+      ),
+    );
+
+    if (!mounted) return;
+    if (changed == true) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Password changed successfully.'),
+          backgroundColor: Colors.green,
+          behavior: SnackBarBehavior.floating,
+          duration: Duration(seconds: 3),
+        ),
+      );
+    }
   }
 
   Future<void> _showAddAcademicSessionDialog(InstituteStore store) async {
@@ -388,6 +414,17 @@ class _SettingsContentState extends State<SettingsContent> {
                       ],
                     ),
                   ),
+                ),
+                const SizedBox(height: 8),
+                // Change Password — available to every logged-in user
+                ListTile(
+                  leading: const Icon(Icons.lock_outline_rounded),
+                  title: const Text('Change Password'),
+                  subtitle: const Text(
+                    'Update your account password (synced to the cloud when online)',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: _showChangePassword,
                 ),
                 SizedBox(height: sectionSpacing),
 
